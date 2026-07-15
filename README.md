@@ -11,7 +11,7 @@ Built with [uv](https://github.com/astral-sh/uv), it optimizes and simplifies re
 1. **Optimized `prefetch` Decompression**: Uses `parallel-fastq-dump` instead of standard `fastq-dump` or `fasterq-dump` to split decompression workloads across multiple CPU cores, automatically gzipping the outputs.
 2. **ENA Aspera Command Redirection**: Automatically translates standard `kingfisher get -r SRR23641780 -m ena-ascp` commands to use the optimized `ascp` parameters requested:
    ```bash
-   /home/pfxu/.aspera/sdk/ascp -vv -T -P 33001 -k 2 -i /home/pfxu/.aspera/sdk/aspera_bypass_rsa.pem era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/SRR236/080/SRR23641780/SRR23641780_1.fastq.gz .
+   ~/.aspera/sdk/ascp -vv -T -P 33001 -k 2 -i ~/.aspera/sdk/aspera_bypass_rsa.pem era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/SRR236/080/SRR23641780/SRR23641780_1.fastq.gz .
    ```
 3. **Smart ENA API Queries**: Resolves accessions (including sample/study accessions) using ENA's File Report API to find exact FASTQ links, with a deterministic path construction fallback if the API is down.
 4. **Enhanced FTP Downloads**: Converts FTP URLs to HTTPS for faster downloads using `wget`, `curl`, or Python `requests` depending on availability.
@@ -67,7 +67,7 @@ small_fisher get -r SRR23641780 -m ena-ascp
 Translates under the hood to the optimized command:
 
 ```bash
-/home/pfxu/.aspera/sdk/ascp -vv -T -P 33001 -k 2 -i /home/pfxu/.aspera/sdk/aspera_bypass_rsa.pem era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/SRR236/080/SRR23641780/SRR23641780_1.fastq.gz .
+~/.aspera/sdk/ascp -vv -T -P 33001 -k 2 -i ~/.aspera/sdk/aspera_bypass_rsa.pem era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/SRR236/080/SRR23641780/SRR23641780_1.fastq.gz .
 ```
 
 You can customize the Aspera binary, private key, port, and flags:
@@ -141,9 +141,9 @@ options:
                         Output directory for downloaded files (default:
                         current directory)
   --ascp-bin ASCP_BIN   Path to the Aspera (ascp) binary (default:
-                        /home/pfxu/.aspera/sdk/ascp)
+                        ~/.aspera/sdk/ascp)
   --ascp-key ASCP_KEY   Path to the Aspera private key (default:
-                        /home/pfxu/.aspera/sdk/aspera_bypass_rsa.pem)
+                        ~/.aspera/sdk/aspera_bypass_rsa.pem)
   --ascp-port ASCP_PORT
                         TCP port for Aspera connection (default: 33001)
   --ascp-options ASCP_OPTIONS

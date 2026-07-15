@@ -47,13 +47,13 @@ def parse_args() -> argparse.Namespace:
     get_parser.add_argument(
         "--ascp-bin",
         default=None,
-        help="Path to the Aspera (ascp) binary (default: auto-detect via 'ascli conf ascp info', fallback to /home/pfxu/.aspera/sdk/ascp)"
+        help="Path to the Aspera (ascp) binary (default: auto-detect via 'ascli conf ascp info', fallback to ~/.aspera/sdk/ascp)"
     )
     
     get_parser.add_argument(
         "--ascp-key",
         default=None,
-        help="Path to the Aspera private key (default: auto-detect via 'ascli conf ascp info' (ssh_private_rsa), fallback to /home/pfxu/.aspera/sdk/aspera_bypass_rsa.pem)"
+        help="Path to the Aspera private key (default: auto-detect via 'ascli conf ascp info' (ssh_private_rsa), fallback to ~/.aspera/sdk/aspera_bypass_rsa.pem)"
     )
     
     get_parser.add_argument(

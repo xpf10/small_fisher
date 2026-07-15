@@ -197,7 +197,7 @@ def get_ascli_config() -> dict:
         # Check standard micromamba environment locations
         candidates = [
             "/root/micromamba/envs/kingfisher_2/bin/ascli",
-            "/home/pfxu/.micromamba/envs/kingfisher_2/bin/ascli",
+            os.path.expanduser("~/.micromamba/envs/kingfisher_2/bin/ascli"),
             "/root/.micromamba/envs/kingfisher_2/bin/ascli",
         ]
         for cand in candidates:
