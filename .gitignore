@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Download files and cache data
+*.fastq.gz
+*.fastq.gz.partial
+*.fastq.gz.aspera-ckpt
+*.sra
+*.partial
+*.aspera-ckpt
+*.lock
+*.prf
+*.tmp
+SRR*/
