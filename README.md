@@ -20,15 +20,36 @@ Built with [uv](https://github.com/astral-sh/uv), it optimizes and simplifies re
 
 ## ⚙️ Installation
 
+### Option A: Using `uv` (Fastest, Recommended)
+
 Initialize and install `small_fisher` directly using `uv`:
 
 ```bash
 # Clone the repository and navigate into it
-git clone <repository_url> small_fisher
+git clone https://github.com/xpf10/small_fisher.git
 cd small_fisher
 
 # Install and compile the tool using uv
 uv pip install -e .
+```
+
+### Option B: In a Conda / Micromamba Environment
+
+If you want to install it into an existing Conda environment (like `kingfisher_2`):
+
+```bash
+# 1. Activate your conda environment
+conda activate kingfisher_2
+
+# 2. Ensure pip is installed in the environment
+conda install pip -y
+
+# 3. Clone and navigate to the project directory
+git clone https://github.com/xpf10/small_fisher.git
+cd small_fisher
+
+# 4. Install the package in editable (development) mode
+pip install -e .
 ```
 
 ---
