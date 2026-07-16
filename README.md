@@ -4,6 +4,9 @@
 
 Built with [uv](https://github.com/astral-sh/uv), it optimizes and simplifies retrieval using ENA's official API with robust protocol fallback, and introduces key speedups for SRA decompression and Aspera transfers.
 
+> [!NOTE]
+> `small_fisher` currently supports **Linux** environments only (including Windows WSL), as it relies on POSIX signal groups and Unix native binaries.
+
 ---
 
 ## 🥊 `small_fisher` vs `Kingfisher`
