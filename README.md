@@ -6,6 +6,21 @@ Built with [uv](https://github.com/astral-sh/uv), it optimizes and simplifies re
 
 ---
 
+## 🥊 `small_fisher` vs `Kingfisher`
+
+| Feature | `small_fisher` 🎣 | `Kingfisher` 👑 |
+| :--- | :--- | :--- |
+| **SRA Decompression** | **Parallelized** (via `parallel-fastq-dump` utilizing all CPU cores & auto-gzipping) | **Sequential** (via `fasterq-dump` or `fastq-dump`, often single-threaded and uncompressed) |
+| **User Interface** | **Web UI Dashboard** (gorgeous glassmorphic dark-mode) + **CLI** | **CLI Only** |
+| **NCBI GEO GSE Support** | **Native** (automatic ENA/GEO mapping & batch downloading) | **No** (requires external translation or scripts) |
+| **Aspera Key Priority** | **RSA Priority** (auto-detects modern RSA bypass keys) | **DSA Only** (fails due to deprecated SSH protocols) |
+| **Skip & Resume** | **File-Level & Size Checking** (skips completed files instantly) | **Limited** (frequent re-attempts/overwrites) |
+| **Process Interruption** | **Clean Kill** (kills background process groups on Ctrl+C/Cancel) | **Leaves Orphan Processes** (runs as background zombies) |
+| **Log parsing** | **Real-Time progress bars & speeds** for Aspera & FTP | **None / Silent** (displays simple spinners) |
+| **Footprint** | **Minimal** (compiled with `uv` and fast startup) | **Heavy** (larger dependency tree) |
+
+---
+
 ## 🌟 Key Features
 
 1. **Optimized `prefetch` Decompression**: Uses `parallel-fastq-dump` instead of standard `fastq-dump` or `fasterq-dump` to split decompression workloads across multiple CPU cores, automatically gzipping the outputs.

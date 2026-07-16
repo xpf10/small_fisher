@@ -200,16 +200,28 @@ def handle_get(args: argparse.Namespace) -> int:
         logger.error("[bold red]✗ No run identifiers provided. Please specify runs via -r/--run-identifiers or a file via -f/--run-file.[/bold red]")
         return 1
     
-    logger.info("[bold cyan]==================================================[/bold cyan]")
-    logger.info("[bold cyan]             SMALL_FISHER DOWNLOADER             [/bold cyan]")
-    logger.info("[bold cyan]==================================================[/bold cyan]")
-    logger.info(f"Output directory: {output_dir}")
-    logger.info(f"Download methods: {', '.join(args.download_methods)}")
-    logger.info(f"Threads:          {args.threads}")
+    BANNER = """[bold cyan]
+  ____                  _ _   _____ _     _               
+ / ___| _ __ ___   __ _| | | |  ___(_)___| |__   ___ _ __ 
+ \___ \| '_ ` _ \ / _` | | | | |_  | / __| '_ \ / _ \ '__|
+  ___) | | | | | | (_| | | | |  _| | \__ \ | | |  __/ |   
+ |____/|_| |_| |_|\__,_|_|_| |_|   |_|___/_| |_|\___|_|   
+[/bold cyan]"""
+    console.print(BANNER)
+    
+    from rich.panel import Panel
+    from rich.table import Table
+    
+    config_table = Table(show_header=False, box=None)
+    config_table.add_row("[bold cyan]Output Directory:[/bold cyan]", output_dir)
+    config_table.add_row("[bold cyan]Download Methods:[/bold cyan]", ", ".join(args.download_methods))
+    config_table.add_row("[bold cyan]CPU Threads:[/bold cyan]", str(args.threads))
     if "ena-ascp" in args.download_methods:
-        logger.info(f"Ascp Binary:      {ascp_bin}")
-        logger.info(f"Ascp Key:         {ascp_key}")
-    logger.info("[bold cyan]--------------------------------------------------[/bold cyan]")
+        config_table.add_row("[bold cyan]Aspera Binary:[/bold cyan]", ascp_bin)
+        config_table.add_row("[bold cyan]Aspera RSA Key:[/bold cyan]", ascp_key)
+        
+    console.print(Panel(config_table, title="[bold magenta]Download Configuration[/bold magenta]", border_style="cyan", expand=False))
+    console.print()
 
     overall_success = []
     overall_failure = []
