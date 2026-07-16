@@ -217,6 +217,20 @@ def download_ena_ascp(
         for i, url in enumerate(urls):
             filename = os.path.basename(url)
             expected_size = expected_sizes.get(filename, 0)
+            local_path = os.path.join(output_dir, filename)
+            
+            # Skip if file already exists and matches expected size (or > 0 if fallback)
+            is_already_done = False
+            if os.path.exists(local_path):
+                if expected_size > 0:
+                    is_already_done = (os.path.getsize(local_path) == expected_size)
+                else:
+                    is_already_done = (os.path.getsize(local_path) > 0)
+                    
+            if is_already_done:
+                logger.info(f"[bold green]✓ File {filename} already exists. Skipping.[/bold green]")
+                success_count += 1
+                continue
             
             # Ensure era-fasp@ prefix is present for ENA download
             if "fasp.sra.ebi.ac.uk" in url and "era-fasp@" not in url:
@@ -347,6 +361,19 @@ def download_ena_ftp(run_record: Dict[str, Any], output_dir: str) -> bool:
         filename = os.path.basename(url)
         expected_size = expected_sizes.get(filename, 0)
         output_path = os.path.join(output_dir, filename)
+        
+        # Skip if file already exists and matches expected size (or > 0 if fallback)
+        is_already_done = False
+        if os.path.exists(output_path):
+            if expected_size > 0:
+                is_already_done = (os.path.getsize(output_path) == expected_size)
+            else:
+                is_already_done = (os.path.getsize(output_path) > 0)
+                
+        if is_already_done:
+            logger.info(f"[bold green]✓ File {filename} already exists. Skipping.[/bold green]")
+            success_count += 1
+            continue
         
         # Start file progress monitor
         stop_event = threading.Event()
