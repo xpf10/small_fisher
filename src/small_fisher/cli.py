@@ -16,6 +16,7 @@ from small_fisher.downloader import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
+        prog="small_fisher",
         description="small_fisher: A lightweight, optimized Sequence Read Archive/European Nucleotide Archive downloader."
     )
     subparsers = parser.add_subparsers(dest="command", required=True, help="Subcommands")

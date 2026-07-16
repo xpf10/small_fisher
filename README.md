@@ -181,7 +181,7 @@ After execution, `small_fisher` automatically writes a persistent summary file *
 Run `small_fisher get --help` to view all options:
 
 ```text
-usage: small-fisher get [-h] [-r RUN_IDENTIFIERS [RUN_IDENTIFIERS ...]]
+usage: small_fisher get [-h] [-r RUN_IDENTIFIERS [RUN_IDENTIFIERS ...]]
                         [-f RUN_FILE]
                         [-m {ena-ascp,prefetch,ena-ftp} [{ena-ascp,prefetch,ena-ftp} ...]]
                         [-o OUTPUT_DIR] [--ascp-bin ASCP_BIN]
