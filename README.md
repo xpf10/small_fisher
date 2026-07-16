@@ -154,6 +154,26 @@ If you have a list of run identifiers in a text file (one per line, ignoring com
 small_fisher get -f /path/to/runs.txt -m ena-ascp
 ```
 
+### 6. GEO GSE Accession Resolution & Metadata Dump
+
+`small_fisher` natively supports NCBI GEO Series accessions (e.g., `GSE188418`). 
+
+When you pass a `GSE` number, `small_fisher` will automatically:
+1. Query the ENA advanced search API to map the GEO study to all corresponding SRA/ENA runs (like `SRRxxxxxx`).
+2. Retrieve the full metadata list (FASTQ download URLs, expected file sizes in bytes, and MD5 checksums).
+3. Download the entire study's samples sequentially using your chosen methods.
+
+To download all SRA runs associated with a GEO GSE accession:
+```bash
+small_fisher get -r GSE188418 -m ena-ascp -o ./GSE188418_data
+```
+
+#### Metadata Log Report
+After execution, `small_fisher` automatically writes a persistent summary file **`small_fisher_report.txt`** into your output directory (`-o`). This report contains:
+- The execution date/time.
+- The list of successfully processed SRA runs and their downloaded/verified files.
+- The list of failed runs accompanied by their specific error messages (e.g. Aspera connection loss, prefetch failure).
+
 ---
 
 ## 🛠️ CLI Options
