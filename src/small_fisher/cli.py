@@ -10,7 +10,8 @@ from small_fisher.downloader import (
     construct_fallback_metadata,
     download_ena_ascp,
     download_ena_ftp,
-    download_prefetch
+    download_prefetch,
+    check_already_downloaded
 )
 
 def parse_args() -> argparse.Namespace:
@@ -95,65 +96,7 @@ def parse_args() -> argparse.Namespace:
     
     return parser.parse_args()
 
-def is_run_downloaded(run_record: Dict[str, Any], output_dir: str) -> bool:
-    """Check if all expected FASTQ files for the ENA run exist and match expected size."""
-    fastq_aspera = run_record.get("fastq_aspera", "")
-    fastq_ftp = run_record.get("fastq_ftp", "")
-    
-    # Use whichever URL metadata is populated
-    urls_str = fastq_aspera if fastq_aspera else fastq_ftp
-    if not urls_str:
-        return False
-        
-    urls = [u.strip() for u in urls_str.split(";") if u.strip()]
-    if not urls:
-        return False
-        
-    bytes_list = []
-    try:
-        bytes_list = [int(x) for x in run_record.get("fastq_bytes", "").split(";") if x.strip()]
-    except Exception:
-        pass
-        
-    for i, url in enumerate(urls):
-        filename = os.path.basename(url)
-        expected_size = bytes_list[i] if i < len(bytes_list) else 0
-        local_path = os.path.join(output_dir, filename)
-        
-        if not os.path.exists(local_path):
-            return False
-            
-        if expected_size > 0:
-            if os.path.getsize(local_path) != expected_size:
-                return False
-        else:
-            if os.path.getsize(local_path) == 0:
-                return False
-                
-    return True
 
-def check_already_downloaded(run_id: str, run_records: List[Dict[str, Any]], output_dir: str) -> bool:
-    """Check if the run has already been fully downloaded (FASTQ files exist and are complete)."""
-    # 1. Check ENA file reports metadata
-    if run_records:
-        for record in run_records:
-            if is_run_downloaded(record, output_dir):
-                return True
-                
-    # 2. Check standard paired-end/single-end FASTQ filename patterns as a fallback
-    paired_1 = os.path.join(output_dir, f"{run_id}_1.fastq.gz")
-    paired_2 = os.path.join(output_dir, f"{run_id}_2.fastq.gz")
-    single = os.path.join(output_dir, f"{run_id}.fastq.gz")
-    
-    if os.path.exists(paired_1) and os.path.exists(paired_2):
-        if os.path.getsize(paired_1) > 0 and os.path.getsize(paired_2) > 0:
-            return True
-            
-    if os.path.exists(single):
-        if os.path.getsize(single) > 0:
-            return True
-            
-    return False
 
 def write_download_report(output_dir: str, overall_success: List[str], failed_runs_errors: Dict[str, str]) -> None:
     """Write a summary report of the download execution to a file in output_dir."""

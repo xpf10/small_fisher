@@ -20,7 +20,8 @@ from small_fisher.downloader import (
     construct_fallback_metadata,
     download_ena_ascp,
     download_ena_ftp,
-    download_prefetch
+    download_prefetch,
+    check_already_downloaded
 )
 
 app = FastAPI(title="small_fisher UI")
@@ -108,6 +109,11 @@ def run_job_thread(job_id: str, accession: str, methods: List[str], current_conf
             add_job_log(job_id, f"Processing Run: {run_id}")
             add_job_log(job_id, f"--------------------------------------------------")
             
+            # Check if this run is already downloaded and complete
+            if check_already_downloaded(run_id, run_records, current_config["output_dir"]):
+                add_job_log(job_id, f"Run {run_id} is already fully downloaded. Skipping.")
+                continue
+                
             downloaded = False
             for method in methods:
                 if JOBS[job_id]["status"] == "cancelled":
