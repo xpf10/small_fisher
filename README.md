@@ -31,6 +31,19 @@ Built with [uv](https://github.com/astral-sh/uv), it optimizes and simplifies re
 3. **Smart ENA API Queries**: Resolves accessions (including sample/study accessions) using ENA's File Report API to find exact FASTQ links, with a deterministic path construction fallback if the API is down.
 4. **Enhanced FTP Downloads**: Converts FTP URLs to HTTPS for faster downloads using `wget`, `curl`, or Python `requests` depending on availability.
 
+## 📋 Prerequisites & Pre-configuration
+
+Before installing or running `small_fisher`, ensure that you have configured your environment with `ascli` (Aspera CLI) so that the tool can auto-detect the locations of your Aspera binary (`ascp`) and SSH private keys.
+
+If you are using a Conda/Micromamba environment (such as `kingfisher_2`), make sure `ascli` is available and run the following command to finalize your Aspera CLI configuration:
+
+```bash
+# Initialize and verify Aspera configuration
+ascli conf ascp info
+```
+
+This configuration stores the paths for your Aspera executables and SSH keys (such as `ssh_private_rsa` and `ssh_private_dsa`), which `small_fisher` dynamically queries at runtime.
+
 ---
 
 ## ⚙️ Installation
