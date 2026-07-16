@@ -2,7 +2,7 @@ import os
 import sys
 import argparse
 import multiprocessing
-from typing import List
+from typing import List, Dict, Any
 
 from small_fisher.utils import logger, console, get_ascli_config
 from small_fisher.downloader import (
@@ -95,6 +95,98 @@ def parse_args() -> argparse.Namespace:
     
     return parser.parse_args()
 
+def is_run_downloaded(run_record: Dict[str, Any], output_dir: str) -> bool:
+    """Check if all expected FASTQ files for the ENA run exist and match expected size."""
+    fastq_aspera = run_record.get("fastq_aspera", "")
+    fastq_ftp = run_record.get("fastq_ftp", "")
+    
+    # Use whichever URL metadata is populated
+    urls_str = fastq_aspera if fastq_aspera else fastq_ftp
+    if not urls_str:
+        return False
+        
+    urls = [u.strip() for u in urls_str.split(";") if u.strip()]
+    if not urls:
+        return False
+        
+    bytes_list = []
+    try:
+        bytes_list = [int(x) for x in run_record.get("fastq_bytes", "").split(";") if x.strip()]
+    except Exception:
+        pass
+        
+    for i, url in enumerate(urls):
+        filename = os.path.basename(url)
+        expected_size = bytes_list[i] if i < len(bytes_list) else 0
+        local_path = os.path.join(output_dir, filename)
+        
+        if not os.path.exists(local_path):
+            return False
+            
+        if expected_size > 0:
+            if os.path.getsize(local_path) != expected_size:
+                return False
+        else:
+            if os.path.getsize(local_path) == 0:
+                return False
+                
+    return True
+
+def check_already_downloaded(run_id: str, run_records: List[Dict[str, Any]], output_dir: str) -> bool:
+    """Check if the run has already been fully downloaded (FASTQ files exist and are complete)."""
+    # 1. Check ENA file reports metadata
+    if run_records:
+        for record in run_records:
+            if is_run_downloaded(record, output_dir):
+                return True
+                
+    # 2. Check standard paired-end/single-end FASTQ filename patterns as a fallback
+    paired_1 = os.path.join(output_dir, f"{run_id}_1.fastq.gz")
+    paired_2 = os.path.join(output_dir, f"{run_id}_2.fastq.gz")
+    single = os.path.join(output_dir, f"{run_id}.fastq.gz")
+    
+    if os.path.exists(paired_1) and os.path.exists(paired_2):
+        if os.path.getsize(paired_1) > 0 and os.path.getsize(paired_2) > 0:
+            return True
+            
+    if os.path.exists(single):
+        if os.path.getsize(single) > 0:
+            return True
+            
+    return False
+
+def write_download_report(output_dir: str, overall_success: List[str], failed_runs_errors: Dict[str, str]) -> None:
+    """Write a summary report of the download execution to a file in output_dir."""
+    from datetime import datetime
+    report_path = os.path.join(output_dir, "small_fisher_report.txt")
+    try:
+        with open(report_path, "w") as f:
+            f.write("==================================================\n")
+            f.write("             SMALL_FISHER DOWNLOAD REPORT         \n")
+            f.write("==================================================\n")
+            f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Total Success: {len(overall_success)}\n")
+            f.write(f"Total Failure: {len(failed_runs_errors)}\n")
+            f.write("==================================================\n\n")
+            
+            f.write("--- SUCCESSFUL RUNS ---\n")
+            if overall_success:
+                for run in overall_success:
+                    f.write(f"{run}\n")
+            else:
+                f.write("None\n")
+            f.write("\n")
+            
+            f.write("--- FAILED RUNS & ERRORS ---\n")
+            if failed_runs_errors:
+                for run, err in failed_runs_errors.items():
+                    f.write(f"{run}: {err}\n")
+            else:
+                f.write("None\n")
+        logger.info(f"Summary report written to: {report_path}")
+    except Exception as e:
+        logger.warning(f"Could not write download report: {e}")
+
 def handle_get(args: argparse.Namespace) -> int:
     from small_fisher.utils import CURRENT_LOG_CALLBACK
     
@@ -178,6 +270,7 @@ def handle_get(args: argparse.Namespace) -> int:
 
     overall_success = []
     overall_failure = []
+    failed_runs_errors = {}
     
     # Process each resolved accession
     for accession in run_identifiers:
@@ -193,14 +286,23 @@ def handle_get(args: argparse.Namespace) -> int:
             run_id = run_record["run_accession"]
             logger.info(f"Resolving run: {run_id}")
             
+            # Check if this run is already downloaded and complete
+            if check_already_downloaded(run_id, run_records, output_dir):
+                logger.info(f"[bold green]✓ Run {run_id} is already fully downloaded. Skipping.[/bold green]")
+                overall_success.append(run_id)
+                continue
+            
             downloaded = False
+            errors = []
             for method in args.download_methods:
                 logger.info(f"Attempting download method: [yellow]{method}[/yellow] for {run_id}...")
                 
                 if method == "ena-ascp":
                     # Check if ascp bin exists first before attempting
                     if not os.path.exists(ascp_bin):
-                        logger.warning(f"Aspera binary not found at '{ascp_bin}'. Skipping ena-ascp.")
+                        err_msg = f"Aspera binary not found at '{ascp_bin}'"
+                        logger.warning(f"{err_msg}. Skipping ena-ascp.")
+                        errors.append(f"ena-ascp: {err_msg}")
                         continue
                     downloaded = download_ena_ascp(
                         run_record=run_record,
@@ -210,6 +312,8 @@ def handle_get(args: argparse.Namespace) -> int:
                         ascp_port=args.ascp_port,
                         ascp_options=ascp_options
                     )
+                    if not downloaded:
+                        errors.append("ena-ascp: Transfer failed (check network/key/SSH)")
                 elif method == "prefetch":
                     downloaded = download_prefetch(
                         accession=run_id,
@@ -217,11 +321,15 @@ def handle_get(args: argparse.Namespace) -> int:
                         threads=args.threads,
                         keep_sra=args.keep_sra
                     )
+                    if not downloaded:
+                        errors.append("prefetch: Download or parallel-fastq-dump decompression failed")
                 elif method == "ena-ftp":
                     downloaded = download_ena_ftp(
                         run_record=run_record,
                         output_dir=output_dir
                     )
+                    if not downloaded:
+                        errors.append("ena-ftp: HTTP/FTP transfer failed")
                     
                 if downloaded:
                     logger.info(f"[bold green]✓ Successfully downloaded {run_id} using {method}.[/bold green]")
@@ -231,8 +339,13 @@ def handle_get(args: argparse.Namespace) -> int:
                     logger.warning(f"Method {method} failed for {run_id}.")
             
             if not downloaded:
-                logger.error(f"[bold red]✗ Failed to download {run_id} with all attempted methods.[/bold red]")
+                err_summary = "; ".join(errors) if errors else "Unknown failure"
+                logger.error(f"[bold red]✗ Failed to download {run_id} with all attempted methods. Reason: {err_summary}[/bold red]")
                 overall_failure.append(run_id)
+                failed_runs_errors[run_id] = err_summary
+                
+    # Write a summary log file to output_dir
+    write_download_report(output_dir, overall_success, failed_runs_errors)
                 
     logger.info("\n[bold cyan]==================================================[/bold cyan]")
     logger.info("[bold cyan]                DOWNLOAD SUMMARY                  [/bold cyan]")
