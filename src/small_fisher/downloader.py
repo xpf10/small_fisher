@@ -65,36 +65,42 @@ def construct_fallback_metadata(accession: str) -> List[Dict[str, Any]]:
         "is_fallback": True
     }]
 
-def monitor_progress_thread(
+def monitor_file_progress_thread(
     output_dir: str,
-    filenames: List[str],
-    expected_sizes: Dict[str, int],
+    filename: str,
+    expected_size: int,
     stop_event: threading.Event,
-    callback
+    callback,
+    file_index: int = 1,
+    total_files: int = 1
 ) -> None:
-    """Monitor files in output_dir and calculate progress and speed for the UI/CLI."""
-    total_size = sum(expected_sizes.values())
-    if total_size <= 0:
+    """Monitor a single file in output_dir and calculate progress and speed for the UI/CLI."""
+    if expected_size <= 0:
         return
         
     last_size = 0
     last_time = time.time()
     
+    # Label single-end vs paired-end
+    if total_files > 1:
+        prefix_label = f"({file_index}/{total_files})"
+    else:
+        prefix_label = ""
+        
     while not stop_event.is_set():
         current_size = 0
-        for filename in filenames:
-            finished_path = os.path.join(output_dir, filename)
-            partial_path = os.path.join(output_dir, filename + ".partial")
-            tmp_path = os.path.join(output_dir, filename + ".tmp")
+        finished_path = os.path.join(output_dir, filename)
+        partial_path = os.path.join(output_dir, filename + ".partial")
+        tmp_path = os.path.join(output_dir, filename + ".tmp")
+        
+        # Check size of completed or active partial files
+        if os.path.exists(finished_path):
+            current_size = os.path.getsize(finished_path)
+        elif os.path.exists(partial_path):
+            current_size = os.path.getsize(partial_path)
+        elif os.path.exists(tmp_path):
+            current_size = os.path.getsize(tmp_path)
             
-            # Sum size of completed or active partial files
-            if os.path.exists(finished_path):
-                current_size += os.path.getsize(finished_path)
-            elif os.path.exists(partial_path):
-                current_size += os.path.getsize(partial_path)
-            elif os.path.exists(tmp_path):
-                current_size += os.path.getsize(tmp_path)
-                
         now = time.time()
         elapsed = now - last_time
         if elapsed >= 1.0:
@@ -107,11 +113,11 @@ def monitor_progress_thread(
             else:
                 speed_str = f"{speed_val:.1f} b/s"
                 
-            pct = int((current_size / total_size) * 100)
+            pct = int((current_size / expected_size) * 100)
             pct = min(pct, 100)
             
             # Format progress line matching (\d+)% and speed patterns
-            progress_line = f"Downloading {filenames[0]}... {pct}% | Speed: {speed_str} | {current_size}/{total_size} bytes"
+            progress_line = f"Downloading {filename} {prefix_label}... {pct}% | Speed: {speed_str} | {current_size}/{expected_size} bytes"
             callback(progress_line, True)
             
             last_size = current_size
@@ -146,111 +152,113 @@ def download_ena_ascp(
         logger.error(f"[bold red]✗ Aspera private key file not found at: {ascp_key}[/bold red]")
         return False
 
-    # Start progress monitoring thread
+    # Parse expected sizes from metadata
     from small_fisher.utils import CURRENT_LOG_CALLBACK
     callback = CURRENT_LOG_CALLBACK.get()
-    stop_event = threading.Event()
-    monitor_thread = None
     
-    if callback:
+    bytes_list = []
+    try:
+        bytes_list = [int(x) for x in run_record.get("fastq_bytes", "").split(";") if x.strip()]
+    except Exception:
+        pass
+        
+    expected_sizes = {}
+    for i, url in enumerate(urls):
+        filename = os.path.basename(url)
+        expected_sizes[filename] = bytes_list[i] if i < len(bytes_list) else 0
+
+    # We will try the given key first. If it is a DSA key and fails, we'll try the RSA key.
+    keys_to_try = [ascp_key]
+    if "dsa" in ascp_key.lower():
+        rsa_key = ascp_key.replace("dsa", "rsa").replace("DSA", "RSA")
+        if os.path.exists(rsa_key) and rsa_key != ascp_key:
+            keys_to_try.append(rsa_key)
+
+    # Copy current environment and set standard password bypass
+    env = os.environ.copy()
+    env["ASPERA_SCP_PASS"] = "SRA"
+
+    downloaded_successfully = False
+    
+    for key in keys_to_try:
+        # Ensure private key has secure permissions (0600) required by SSH/ascp
         try:
-            bytes_list = [int(x) for x in run_record.get("fastq_bytes", "").split(";") if x.strip()]
-        except Exception:
-            bytes_list = []
-            
-        expected_sizes = {}
-        filenames = []
+            os.chmod(key, 0o600)
+        except Exception as e:
+            logger.warning(f"Could not change permissions of private key {key} to 0600: {e}")
+
+        success_count = 0
         for i, url in enumerate(urls):
             filename = os.path.basename(url)
-            filenames.append(filename)
-            expected_sizes[filename] = bytes_list[i] if i < len(bytes_list) else 0
+            expected_size = expected_sizes.get(filename, 0)
             
-        if sum(expected_sizes.values()) > 0:
-            monitor_thread = threading.Thread(
-                target=monitor_progress_thread,
-                args=(output_dir, filenames, expected_sizes, stop_event, callback),
-                daemon=True
-            )
-            monitor_thread.start()
-
-    try:
-        # We will try the given key first. If it is a DSA key and fails, we'll try the RSA key.
-        keys_to_try = [ascp_key]
-        if "dsa" in ascp_key.lower():
-            rsa_key = ascp_key.replace("dsa", "rsa").replace("DSA", "RSA")
-            if os.path.exists(rsa_key) and rsa_key != ascp_key:
-                keys_to_try.append(rsa_key)
-
-        # Copy current environment and set standard password bypass
-        env = os.environ.copy()
-        env["ASPERA_SCP_PASS"] = "SRA"
-
-        downloaded_successfully = False
-        
-        for key in keys_to_try:
-            # Ensure private key has secure permissions (0600) required by SSH/ascp
-            try:
-                os.chmod(key, 0o600)
-            except Exception as e:
-                logger.warning(f"Could not change permissions of private key {key} to 0600: {e}")
-
-            success_count = 0
-            for url in urls:
-                # Ensure era-fasp@ prefix is present for ENA download
-                if "fasp.sra.ebi.ac.uk" in url and "era-fasp@" not in url:
-                    url = url.replace("fasp.sra.ebi.ac.uk", "era-fasp@fasp.sra.ebi.ac.uk")
-                    
-                cmd = [
-                    ascp_bin,
-                    *ascp_options,
-                    "-P", ascp_port,
-                    "-i", key,
-                    url,
-                    output_dir
-                ]
+            # Ensure era-fasp@ prefix is present for ENA download
+            if "fasp.sra.ebi.ac.uk" in url and "era-fasp@" not in url:
+                url = url.replace("fasp.sra.ebi.ac.uk", "era-fasp@fasp.sra.ebi.ac.uk")
                 
-                ok = run_command(cmd, f"Aspera download of {os.path.basename(url)} using {os.path.basename(key)}", env=env)
+            cmd = [
+                ascp_bin,
+                *ascp_options,
+                "-P", ascp_port,
+                "-i", key,
+                url,
+                output_dir
+            ]
+            
+            # Start file progress monitor
+            stop_event = threading.Event()
+            monitor_thread = None
+            if callback and expected_size > 0:
+                monitor_thread = threading.Thread(
+                    target=monitor_file_progress_thread,
+                    args=(output_dir, filename, expected_size, stop_event, callback, i + 1, len(urls)),
+                    daemon=True
+                )
+                monitor_thread.start()
+                
+            try:
+                ok = run_command(cmd, f"Aspera download of {filename} using {os.path.basename(key)}", env=env)
                 if ok:
                     success_count += 1
+            finally:
+                stop_event.set()
+                if monitor_thread:
+                    monitor_thread.join(timeout=1.0)
 
-            if success_count == len(urls) and len(urls) > 0:
+        if success_count == len(urls) and len(urls) > 0:
+            downloaded_successfully = True
+            break
+        elif success_count > 0:
+            # Partial success, we still consider it success for this run
+            downloaded_successfully = True
+            break
+        else:
+            logger.warning(f"Aspera transfer failed using key: {key}")
+
+    # Handle single-end fallback if it was a constructed fallback and the paired download failed
+    if not downloaded_successfully and run_record.get("is_fallback"):
+        for key in keys_to_try:
+            logger.info(f"Paired-end download failed. Trying single-end fallback for {accession} using {os.path.basename(key)}...")
+            prefix = accession[:6]
+            subdir = get_ena_subdir(accession)
+            path_part = f"{prefix}/{subdir}/{accession}" if subdir else f"{prefix}/{accession}"
+            single_url = f"era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/{path_part}/{accession}.fastq.gz"
+            
+            cmd = [
+                ascp_bin,
+                *ascp_options,
+                "-P", ascp_port,
+                "-i", key,
+                single_url,
+                output_dir
+            ]
+            
+            ok = run_command(cmd, f"Aspera download of single-end {accession}.fastq.gz", env=env)
+            if ok:
                 downloaded_successfully = True
                 break
-            elif success_count > 0:
-                # Partial success, we still consider it success for this run
-                downloaded_successfully = True
-                break
-            else:
-                logger.warning(f"Aspera transfer failed using key: {key}")
-
-        # Handle single-end fallback if it was a constructed fallback and the paired download failed
-        if not downloaded_successfully and run_record.get("is_fallback"):
-            for key in keys_to_try:
-                logger.info(f"Paired-end download failed. Trying single-end fallback for {accession} using {os.path.basename(key)}...")
-                prefix = accession[:6]
-                subdir = get_ena_subdir(accession)
-                path_part = f"{prefix}/{subdir}/{accession}" if subdir else f"{prefix}/{accession}"
-                single_url = f"era-fasp@fasp.sra.ebi.ac.uk:/vol1/fastq/{path_part}/{accession}.fastq.gz"
-                
-                cmd = [
-                    ascp_bin,
-                    *ascp_options,
-                    "-P", ascp_port,
-                    "-i", key,
-                    single_url,
-                    output_dir
-                ]
-                
-                ok = run_command(cmd, f"Aspera download of single-end {accession}.fastq.gz", env=env)
-                if ok:
-                    downloaded_successfully = True
-                    break
-                
-        return downloaded_successfully
-    finally:
-        stop_event.set()
-        if monitor_thread:
-            monitor_thread.join(timeout=1.0)
+            
+    return downloaded_successfully
 
 def download_url(url: str, output_path: str) -> bool:
     """Download a file via HTTP/HTTPS using wget, curl, or requests."""
@@ -294,57 +302,58 @@ def download_ena_ftp(run_record: Dict[str, Any], output_dir: str) -> bool:
     urls = [u.strip() for u in ftp_urls_str.split(";") if u.strip()]
     success_count = 0
     
-    # Start progress monitoring thread
+    # Parse expected sizes from metadata
     from small_fisher.utils import CURRENT_LOG_CALLBACK
     callback = CURRENT_LOG_CALLBACK.get()
-    stop_event = threading.Event()
-    monitor_thread = None
     
-    if callback:
-        try:
-            bytes_list = [int(x) for x in run_record.get("fastq_bytes", "").split(";") if x.strip()]
-        except Exception:
-            bytes_list = []
-            
-        expected_sizes = {}
-        filenames = []
-        for i, url in enumerate(urls):
-            filename = os.path.basename(url)
-            filenames.append(filename)
-            expected_sizes[filename] = bytes_list[i] if i < len(bytes_list) else 0
-            
-        if sum(expected_sizes.values()) > 0:
+    bytes_list = []
+    try:
+        bytes_list = [int(x) for x in run_record.get("fastq_bytes", "").split(";") if x.strip()]
+    except Exception:
+        pass
+        
+    expected_sizes = {}
+    for i, url in enumerate(urls):
+        filename = os.path.basename(url)
+        expected_sizes[filename] = bytes_list[i] if i < len(bytes_list) else 0
+
+    for i, url in enumerate(urls):
+        filename = os.path.basename(url)
+        expected_size = expected_sizes.get(filename, 0)
+        output_path = os.path.join(output_dir, filename)
+        
+        # Start file progress monitor
+        stop_event = threading.Event()
+        monitor_thread = None
+        if callback and expected_size > 0:
             monitor_thread = threading.Thread(
-                target=monitor_progress_thread,
-                args=(output_dir, filenames, expected_sizes, stop_event, callback),
+                target=monitor_file_progress_thread,
+                args=(output_dir, filename, expected_size, stop_event, callback, i + 1, len(urls)),
                 daemon=True
             )
             monitor_thread.start()
-
-    try:
-        for url in urls:
-            filename = os.path.basename(url)
-            output_path = os.path.join(output_dir, filename)
+            
+        try:
             ok = download_url(url, output_path)
             if ok:
                 success_count += 1
+        finally:
+            stop_event.set()
+            if monitor_thread:
+                monitor_thread.join(timeout=1.0)
                 
-        # Handle single-end fallback if it was a constructed fallback and the paired download failed
-        if success_count == 0 and run_record.get("is_fallback"):
-            logger.info(f"Paired-end FTP download failed. Trying single-end fallback for {accession}...")
-            prefix = accession[:6]
-            subdir = get_ena_subdir(accession)
-            path_part = f"{prefix}/{subdir}/{accession}" if subdir else f"{prefix}/{accession}"
-            single_url = f"ftp.sra.ebi.ac.uk/vol1/fastq/{path_part}/{accession}.fastq.gz"
-            output_path = os.path.join(output_dir, f"{accession}.fastq.gz")
-            ok = download_url(single_url, output_path)
-            return ok
-            
-        return success_count > 0
-    finally:
-        stop_event.set()
-        if monitor_thread:
-            monitor_thread.join(timeout=1.0)
+    # Handle single-end fallback if it was a constructed fallback and the paired download failed
+    if success_count == 0 and run_record.get("is_fallback"):
+        logger.info(f"Paired-end FTP download failed. Trying single-end fallback for {accession}...")
+        prefix = accession[:6]
+        subdir = get_ena_subdir(accession)
+        path_part = f"{prefix}/{subdir}/{accession}" if subdir else f"{prefix}/{accession}"
+        single_url = f"ftp.sra.ebi.ac.uk/vol1/fastq/{path_part}/{accession}.fastq.gz"
+        output_path = os.path.join(output_dir, f"{accession}.fastq.gz")
+        ok = download_url(single_url, output_path)
+        return ok
+        
+    return success_count > 0
 
 def decompress_sra_parallel(
     sra_path: str,

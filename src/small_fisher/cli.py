@@ -100,8 +100,8 @@ def handle_get(args: argparse.Namespace) -> int:
     
     def cli_log_callback(line: str, is_progress: bool):
         if is_progress:
-            # Print in-place cyan progress line in the console
-            sys.stdout.write(f"\r\033[K\033[36m⚡ {line}\033[0m")
+            # Print in-place cyan progress line and reset cursor to start of line
+            sys.stdout.write(f"\r\033[K\033[36m⚡ {line}\033[0m\r")
             sys.stdout.flush()
         else:
             # Clear carriage return line and print normal log line
