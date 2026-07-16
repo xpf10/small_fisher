@@ -115,6 +115,14 @@ Open `http://127.0.0.1:8000` in your web browser. You will be able to:
 - Trigger real-time, automatic configuration scans using the `Detect via ascli` button.
 - Monitor active downloads, view live console logs, and cancel running tasks instantly.
 
+### 5. Batch Download via File List
+
+If you have a list of run identifiers in a text file (one per line, ignoring comments starting with `#`), you can specify it using `-f` or `--run-file`:
+
+```bash
+small_fisher get -f /path/to/runs.txt -m ena-ascp
+```
+
 ---
 
 ## 🛠️ CLI Options
@@ -122,7 +130,8 @@ Open `http://127.0.0.1:8000` in your web browser. You will be able to:
 Run `small_fisher get --help` to view all options:
 
 ```text
-usage: small-fisher get [-h] -r RUN_IDENTIFIERS [RUN_IDENTIFIERS ...]
+usage: small-fisher get [-h] [-r RUN_IDENTIFIERS [RUN_IDENTIFIERS ...]]
+                        [-f RUN_FILE]
                         [-m {ena-ascp,prefetch,ena-ftp} [{ena-ascp,prefetch,ena-ftp} ...]]
                         [-o OUTPUT_DIR] [--ascp-bin ASCP_BIN]
                         [--ascp-key ASCP_KEY] [--ascp-port ASCP_PORT]
@@ -134,16 +143,21 @@ options:
   -r RUN_IDENTIFIERS [RUN_IDENTIFIERS ...], --run-identifiers RUN_IDENTIFIERS [RUN_IDENTIFIERS ...]
                         One or more SRA/ENA run identifiers (e.g. SRR23641780)
                         or study accessions
+  -f RUN_FILE, --run-file RUN_FILE
+                        Path to a text file containing run identifiers (one
+                        per line)
   -m {ena-ascp,prefetch,ena-ftp} [{ena-ascp,prefetch,ena-ftp} ...], --download-methods {ena-ascp,prefetch,ena-ftp} [{ena-ascp,prefetch,ena-ftp} ...]
                         Download methods to attempt in sequence (default: ena-
                         ascp prefetch ena-ftp)
   -o OUTPUT_DIR, --output-dir OUTPUT_DIR
                         Output directory for downloaded files (default:
                         current directory)
-  --ascp-bin ASCP_BIN   Path to the Aspera (ascp) binary (default:
+  --ascp-bin ASCP_BIN   Path to the Aspera (ascp) binary (default: auto-detect
+                        via 'ascli conf ascp info', fallback to
                         ~/.aspera/sdk/ascp)
-  --ascp-key ASCP_KEY   Path to the Aspera private key (default:
-                        ~/.aspera/sdk/aspera_bypass_rsa.pem)
+  --ascp-key ASCP_KEY   Path to the Aspera private key (default: auto-detect
+                        via 'ascli conf ascp info' (ssh_private_rsa), fallback
+                        to ~/.aspera/sdk/aspera_bypass_rsa.pem)
   --ascp-port ASCP_PORT
                         TCP port for Aspera connection (default: 33001)
   --ascp-options ASCP_OPTIONS

@@ -25,8 +25,14 @@ def parse_args() -> argparse.Namespace:
     get_parser.add_argument(
         "-r", "--run-identifiers",
         nargs="+",
-        required=True,
+        required=False,
         help="One or more SRA/ENA run identifiers (e.g. SRR23641780) or study accessions"
+    )
+    
+    get_parser.add_argument(
+        "-f", "--run-file",
+        default=None,
+        help="Path to a text file containing run identifiers (one per line)"
     )
     
     get_parser.add_argument(
@@ -135,6 +141,29 @@ def handle_get(args: argparse.Namespace) -> int:
                 else:
                     ascp_key = os.path.expanduser("~/.aspera/sdk/aspera_bypass_rsa.pem")
                     logger.info(f"Fallback to default ascp key path: {ascp_key}")
+    # Resolve run identifiers from CLI arguments and/or run file
+    run_identifiers = []
+    if args.run_identifiers:
+        run_identifiers.extend(args.run_identifiers)
+        
+    if args.run_file:
+        if not os.path.exists(args.run_file):
+            logger.error(f"[bold red]✗ Run list file not found: {args.run_file}[/bold red]")
+            return 1
+        try:
+            with open(args.run_file, "r") as f:
+                for line in f:
+                    line_clean = line.strip()
+                    # Skip empty lines and comments
+                    if line_clean and not line_clean.startswith("#"):
+                        run_identifiers.append(line_clean)
+        except Exception as e:
+            logger.error(f"[bold red]✗ Error reading run list file {args.run_file}: {e}[/bold red]")
+            return 1
+
+    if not run_identifiers:
+        logger.error("[bold red]✗ No run identifiers provided. Please specify runs via -r/--run-identifiers or a file via -f/--run-file.[/bold red]")
+        return 1
     
     logger.info("[bold cyan]==================================================[/bold cyan]")
     logger.info("[bold cyan]             SMALL_FISHER DOWNLOADER             [/bold cyan]")
@@ -150,8 +179,8 @@ def handle_get(args: argparse.Namespace) -> int:
     overall_success = []
     overall_failure = []
     
-    # Process each user-provided accession
-    for accession in args.run_identifiers:
+    # Process each resolved accession
+    for accession in run_identifiers:
         logger.info(f"\n[bold magenta]► Processing accession: {accession}[/bold magenta]")
         
         # Query ENA API to resolve accession to runs
