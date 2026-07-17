@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "post-to-xhs": {
+      "source": "xpzouying/xiaohongshu-mcp",
+      "sourceType": "github",
+      "skillPath": "skills/post-to-xhs/SKILL.md",
+      "computedHash": "b298b5f154690d57245dedcfcb292ea073f7b31693a868fa83ed8334de96621a"
+    }
+  }
+}

@@ -2,7 +2,7 @@
 __pycache__/
 *.py[oc]
 build/
-dist/
+/dist/
 wheels/
 *.egg-info
 
@@ -20,3 +20,6 @@ wheels/
 *.prf
 *.tmp
 SRR*/
+
+# Local agent environments
+.agents/

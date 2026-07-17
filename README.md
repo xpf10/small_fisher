@@ -137,6 +137,8 @@ small_fisher get -r SRR23641780 -m ena-ascp prefetch ena-ftp -o ./data -t 12
 
 `small_fisher` includes a premium, glassmorphic dark-mode web interface to manage your downloads visually.
 
+![small_fisher Web UI Dashboard](assets/dashboard_mockup.jpg)
+
 To launch the web UI, run:
 ```bash
 small_fisher ui --host 127.0.0.1 --port 8000
