@@ -90,6 +90,13 @@ def parse_args() -> argparse.Namespace:
         help="Keep SRA file after decompression when using prefetch (default: False)"
     )
     
+    get_parser.add_argument(
+        "--retries",
+        type=int,
+        default=2,
+        help="Number of auto-retries when all download methods fail for a run (default: 2)"
+    )
+    
     # 'ui' command
     ui_parser = subparsers.add_parser("ui", help="Launch the web UI dashboard interface")
     ui_parser.add_argument("--host", default="127.0.0.1", help="Host address to bind to (default: 127.0.0.1)")
@@ -249,50 +256,60 @@ def handle_get(args: argparse.Namespace) -> int:
                 continue
             
             downloaded = False
-            errors = []
-            for method in args.download_methods:
-                logger.info(f"Attempting download method: [yellow]{method}[/yellow] for {run_id}...")
-                
-                if method == "ena-ascp":
-                    # Check if ascp bin exists first before attempting
-                    if not os.path.exists(ascp_bin):
-                        err_msg = f"Aspera binary not found at '{ascp_bin}'"
-                        logger.warning(f"{err_msg}. Skipping ena-ascp.")
-                        errors.append(f"ena-ascp: {err_msg}")
-                        continue
-                    downloaded = download_ena_ascp(
-                        run_record=run_record,
-                        output_dir=output_dir,
-                        ascp_bin=ascp_bin,
-                        ascp_key=ascp_key,
-                        ascp_port=args.ascp_port,
-                        ascp_options=ascp_options
-                    )
-                    if not downloaded:
-                        errors.append("ena-ascp: Transfer failed (check network/key/SSH)")
-                elif method == "prefetch":
-                    downloaded = download_prefetch(
-                        accession=run_id,
-                        output_dir=output_dir,
-                        threads=args.threads,
-                        keep_sra=args.keep_sra
-                    )
-                    if not downloaded:
-                        errors.append("prefetch: Download or parallel-fastq-dump decompression failed")
-                elif method == "ena-ftp":
-                    downloaded = download_ena_ftp(
-                        run_record=run_record,
-                        output_dir=output_dir
-                    )
-                    if not downloaded:
-                        errors.append("ena-ftp: HTTP/FTP transfer failed")
+            for attempt in range(args.retries + 1):
+                if attempt > 0:
+                    logger.info(f"\n[bold yellow]↻ Retrying download for {run_id} (Attempt {attempt}/{args.retries})...[/bold yellow]")
+                    # Wait before retry (exponential backoff)
+                    import time
+                    time.sleep(min(2 ** attempt, 30))
                     
+                errors = []
+                for method in args.download_methods:
+                    logger.info(f"Attempting download method: [yellow]{method}[/yellow] for {run_id}...")
+                    
+                    if method == "ena-ascp":
+                        # Check if ascp bin exists first before attempting
+                        if not os.path.exists(ascp_bin):
+                            err_msg = f"Aspera binary not found at '{ascp_bin}'"
+                            logger.warning(f"{err_msg}. Skipping ena-ascp.")
+                            errors.append(f"ena-ascp: {err_msg}")
+                            continue
+                        downloaded = download_ena_ascp(
+                            run_record=run_record,
+                            output_dir=output_dir,
+                            ascp_bin=ascp_bin,
+                            ascp_key=ascp_key,
+                            ascp_port=args.ascp_port,
+                            ascp_options=ascp_options
+                        )
+                        if not downloaded:
+                            errors.append("ena-ascp: Transfer failed (check network/key/SSH)")
+                    elif method == "prefetch":
+                        downloaded = download_prefetch(
+                            accession=run_id,
+                            output_dir=output_dir,
+                            threads=args.threads,
+                            keep_sra=args.keep_sra
+                        )
+                        if not downloaded:
+                            errors.append("prefetch: Download or parallel-fastq-dump decompression failed")
+                    elif method == "ena-ftp":
+                        downloaded = download_ena_ftp(
+                            run_record=run_record,
+                            output_dir=output_dir
+                        )
+                        if not downloaded:
+                            errors.append("ena-ftp: HTTP/FTP transfer failed")
+                        
+                    if downloaded:
+                        logger.info(f"[bold green]✓ Successfully downloaded {run_id} using {method}.[/bold green]")
+                        overall_success.append(run_id)
+                        break
+                    else:
+                        logger.warning(f"Method {method} failed for {run_id}.")
+                
                 if downloaded:
-                    logger.info(f"[bold green]✓ Successfully downloaded {run_id} using {method}.[/bold green]")
-                    overall_success.append(run_id)
                     break
-                else:
-                    logger.warning(f"Method {method} failed for {run_id}.")
             
             if not downloaded:
                 err_summary = "; ".join(errors) if errors else "Unknown failure"

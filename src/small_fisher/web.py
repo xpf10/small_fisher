@@ -35,7 +35,8 @@ CONFIG = {
     "ascp_key": None,
     "ascp_port": "33001",
     "ascp_options": "-vv -T -k 2",
-    "keep_sra": False
+    "keep_sra": False,
+    "retries": 2
 }
 
 class ConfigModel(BaseModel):
@@ -46,6 +47,7 @@ class ConfigModel(BaseModel):
     ascp_port: str
     ascp_options: str
     keep_sra: bool
+    retries: int = 2
 
 class NewJobModel(BaseModel):
     accession: str
@@ -114,50 +116,61 @@ def run_job_thread(job_id: str, accession: str, methods: List[str], current_conf
                 add_job_log(job_id, f"Run {run_id} is already fully downloaded. Skipping.")
                 continue
                 
+            retries = current_config.get("retries", 2)
             downloaded = False
-            for method in methods:
+            for attempt in range(retries + 1):
                 if JOBS[job_id]["status"] == "cancelled":
                     break
+                if attempt > 0:
+                    add_job_log(job_id, f"↻ Retrying run {run_id} (Attempt {attempt}/{retries})...")
+                    time.sleep(min(2 ** attempt, 30))
                     
-                add_job_log(job_id, f"Trying download method: {method}...")
+                for method in methods:
+                    if JOBS[job_id]["status"] == "cancelled":
+                        break
+                        
+                    add_job_log(job_id, f"Trying download method: {method}...")
+                    
+                    if method == "ena-ascp":
+                        ascp_bin = current_config.get("ascp_bin")
+                        ascp_key = current_config.get("ascp_key")
+                        
+                        # Auto-detect using ascli if not specified
+                        if not ascp_bin or not ascp_key:
+                            add_job_log(job_id, "Aspera path or key not specified. Detecting via ascli...")
+                            ascli_config = get_ascli_config()
+                            if not ascp_bin:
+                                ascp_bin = ascli_config.get("ascp") or os.path.expanduser("~/.aspera/sdk/ascp")
+                            if not ascp_key:
+                                ascp_key = ascli_config.get("ssh_private_rsa") or ascli_config.get("ssh_private_dsa") or os.path.expanduser("~/.aspera/sdk/aspera_bypass_rsa.pem")
+                                
+                        add_job_log(job_id, f"Resolved Ascp Binary: {ascp_bin}")
+                        add_job_log(job_id, f"Resolved Ascp Key:    {ascp_key}")
+                        
+                        downloaded = download_ena_ascp(
+                            run_record=run_record,
+                            output_dir=current_config["output_dir"],
+                            ascp_bin=ascp_bin,
+                            ascp_key=ascp_key,
+                            ascp_port=current_config["ascp_port"],
+                            ascp_options=[opt for opt in current_config["ascp_options"].split() if opt]
+                        )
+                    elif method == "prefetch":
+                        downloaded = download_prefetch(
+                            accession=run_id,
+                            output_dir=current_config["output_dir"],
+                            threads=current_config["threads"],
+                            keep_sra=current_config["keep_sra"]
+                        )
+                    elif method == "ena-ftp":
+                        downloaded = download_ena_ftp(
+                            run_record=run_record,
+                            output_dir=current_config["output_dir"]
+                        )
+                        
+                    if downloaded:
+                        break
                 
-                if method == "ena-ascp":
-                    ascp_bin = current_config.get("ascp_bin")
-                    ascp_key = current_config.get("ascp_key")
-                    
-                    # Auto-detect using ascli if not specified
-                    if not ascp_bin or not ascp_key:
-                        add_job_log(job_id, "Aspera path or key not specified. Detecting via ascli...")
-                        ascli_config = get_ascli_config()
-                        if not ascp_bin:
-                            ascp_bin = ascli_config.get("ascp") or os.path.expanduser("~/.aspera/sdk/ascp")
-                        if not ascp_key:
-                            ascp_key = ascli_config.get("ssh_private_rsa") or ascli_config.get("ssh_private_dsa") or os.path.expanduser("~/.aspera/sdk/aspera_bypass_rsa.pem")
-                            
-                    add_job_log(job_id, f"Resolved Ascp Binary: {ascp_bin}")
-                    add_job_log(job_id, f"Resolved Ascp Key:    {ascp_key}")
-                    
-                    downloaded = download_ena_ascp(
-                        run_record=run_record,
-                        output_dir=current_config["output_dir"],
-                        ascp_bin=ascp_bin,
-                        ascp_key=ascp_key,
-                        ascp_port=current_config["ascp_port"],
-                        ascp_options=[opt for opt in current_config["ascp_options"].split() if opt]
-                    )
-                elif method == "prefetch":
-                    downloaded = download_prefetch(
-                        accession=run_id,
-                        output_dir=current_config["output_dir"],
-                        threads=current_config["threads"],
-                        keep_sra=current_config["keep_sra"]
-                    )
-                elif method == "ena-ftp":
-                    downloaded = download_ena_ftp(
-                        run_record=run_record,
-                        output_dir=current_config["output_dir"]
-                    )
-                    
                 if downloaded:
                     break
                     
@@ -616,8 +629,12 @@ def index():
                     <input type="text" id="ascp_options" class="form-control">
                 </div>
                 <div class="form-group">
+                    <label for="retries">Auto-Retries</label>
+                    <input type="number" id="retries" class="form-control" min="0" max="10" placeholder="2">
+                </div>
+                <div class="form-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" id="keep_sra"> Keep SRA Files
+                         <input type="checkbox" id="keep_sra"> Keep SRA Files
                     </label>
                 </div>
                 <button class="btn" onclick="saveConfig()">Save Settings</button>
@@ -683,6 +700,7 @@ def index():
                 document.getElementById('ascp_key').value = configData.ascp_key || '';
                 document.getElementById('ascp_options').value = configData.ascp_options;
                 document.getElementById('keep_sra').checked = configData.keep_sra;
+                document.getElementById('retries').value = configData.retries !== undefined ? configData.retries : 2;
             } catch (e) {
                 showNotification("Error loading configuration", true);
             }
@@ -697,7 +715,8 @@ def index():
                 ascp_bin: document.getElementById('ascp_bin').value || null,
                 ascp_key: document.getElementById('ascp_key').value || null,
                 ascp_options: document.getElementById('ascp_options').value,
-                keep_sra: document.getElementById('keep_sra').checked
+                keep_sra: document.getElementById('keep_sra').checked,
+                retries: parseInt(document.getElementById('retries').value || 0)
             };
 
             try {
@@ -921,6 +940,7 @@ def update_config(config: ConfigModel):
     CONFIG["ascp_port"] = config.ascp_port
     CONFIG["ascp_options"] = config.ascp_options
     CONFIG["keep_sra"] = config.keep_sra
+    CONFIG["retries"] = config.retries
     return {"status": "ok"}
 
 @app.get("/api/jobs")

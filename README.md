@@ -187,7 +187,7 @@ usage: small_fisher get [-h] [-r RUN_IDENTIFIERS [RUN_IDENTIFIERS ...]]
                         [-o OUTPUT_DIR] [--ascp-bin ASCP_BIN]
                         [--ascp-key ASCP_KEY] [--ascp-port ASCP_PORT]
                         [--ascp-options ASCP_OPTIONS] [-t THREADS]
-                        [--keep-sra]
+                        [--keep-sra] [--retries RETRIES]
 
 options:
   -h, --help            show this help message and exit
@@ -218,4 +218,6 @@ options:
                         all available CPU cores)
   --keep-sra            Keep SRA file after decompression when using prefetch
                         (default: False)
+  --retries RETRIES     Number of auto-retries when all download methods fail
+                        for a run (default: 2)
 ```
