@@ -96,6 +96,12 @@ def parse_args() -> argparse.Namespace:
         help="Number of auto-retries when all download methods fail for a run (default: 2)"
     )
     
+    get_parser.add_argument(
+        "--skip-verify",
+        action="store_true",
+        help="Skip MD5 checksum verification of FASTQ files after download (default: False)"
+    )
+    
     # 'ui' command
     ui_parser = subparsers.add_parser("ui", help="Launch the web UI dashboard interface")
     ui_parser.add_argument("--host", default="127.0.0.1", help="Host address to bind to (default: 127.0.0.1)")
@@ -298,9 +304,36 @@ def handle_get(args: argparse.Namespace) -> int:
                             errors.append("ena-ftp: HTTP/FTP transfer failed")
                         
                     if downloaded:
-                        logger.info(f"[bold green]✓ Successfully downloaded {run_id} using {method}.[/bold green]")
-                        overall_success.append(run_id)
-                        break
+                        if not getattr(args, "skip_verify", False):
+                            from small_fisher.downloader import verify_file_integrity
+                            md5_list = [m.strip() for m in run_record.get("fastq_md5", "").split(";") if m.strip()]
+                            files = []
+                            if "fastq_ftp" in run_record and run_record["fastq_ftp"]:
+                                files = [os.path.basename(u) for u in run_record["fastq_ftp"].split(";") if u.strip()]
+                            elif "fastq_aspera" in run_record and run_record["fastq_aspera"]:
+                                files = [os.path.basename(u) for u in run_record["fastq_aspera"].split(";") if u.strip()]
+                            
+                            if md5_list and len(md5_list) == len(files):
+                                logger.info(f"Verifying MD5 checksums for {run_id}...")
+                                is_valid = True
+                                for f, expected_md5 in zip(files, md5_list):
+                                    filepath = os.path.join(output_dir, f)
+                                    logger.info(f"Verifying {f} against MD5 {expected_md5}...")
+                                    if not verify_file_integrity(filepath, expected_md5):
+                                        logger.error(f"[bold red]✗ MD5 mismatch for {f}[/bold red]")
+                                        is_valid = False
+                                        break
+                                    else:
+                                        logger.info(f"[bold green]✓ MD5 verified for {f}[/bold green]")
+                                if not is_valid:
+                                    logger.warning(f"Integrity check failed for method {method}. Proceeding to fallback...")
+                                    downloaded = False
+                                    errors.append(f"{method}: MD5 verification failed")
+                                    
+                        if downloaded:
+                            logger.info(f"[bold green]✓ Successfully downloaded {run_id} using {method}.[/bold green]")
+                            overall_success.append(run_id)
+                            break
                     else:
                         logger.warning(f"Method {method} failed for {run_id}.")
                 

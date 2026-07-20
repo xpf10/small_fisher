@@ -610,6 +610,18 @@ def check_already_downloaded(run_id: str, run_records: List[Dict[str, Any]], out
             
     return False
 
+def verify_file_integrity(filepath: str, expected_md5: str) -> bool:
+    """Verify the MD5 checksum of a file."""
+    import hashlib
+    if not os.path.exists(filepath):
+        return False
+    md5_hash = hashlib.md5()
+    with open(filepath, "rb") as f:
+        # Read in 4MB chunks
+        for chunk in iter(lambda: f.read(4096 * 1024), b""):
+            md5_hash.update(chunk)
+    return md5_hash.hexdigest().lower() == expected_md5.lower()
+
 def query_gsa_metadata(accession: str) -> List[Dict[str, Any]]:
     """Query GSA metadata from CNCB web pages for GSA accessions."""
     import re
@@ -662,6 +674,21 @@ def query_gsa_metadata(accession: str) -> List[Dict[str, Any]]:
             
         logger.info(f"Parsed GSA server directory: {gsa_dir}")
         
+        # Parse MD5 sums if available
+        md5_dict = {}
+        try:
+            md5_url = f"https://download.cncb.ac.cn/{gsa_dir}/{cra_accession}/md5sum.txt"
+            md5_res = requests.get(md5_url, headers=headers, timeout=10)
+            if md5_res.status_code == 200:
+                for line in md5_res.text.strip().split("\n"):
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        # parts[1] is like /CRA032360/CRR2255594/CRR2255594_r1.fastq.gz
+                        filename = parts[1].split("/")[-1]
+                        md5_dict[filename] = parts[0]
+        except Exception:
+            pass
+        
         # 2. Extract runs and files from the runTr blocks
         records = []
         blocks = html.split('class="runTr"')
@@ -670,12 +697,15 @@ def query_gsa_metadata(accession: str) -> List[Dict[str, Any]]:
             for run_id in run_accessions:
                 if is_crr and run_id != accession:
                     continue
+                files = [f"{run_id}_r1.fastq.gz", f"{run_id}_r2.fastq.gz"]
+                md5s = [md5_dict.get(f, "") for f in files]
+                
                 records.append({
                     "run_accession": run_id,
-                    "fastq_aspera": f"aspera01@download.cncb.ac.cn:{gsa_dir}/{cra_accession}/{run_id}/{run_id}_r1.fastq.gz;aspera01@download.cncb.ac.cn:{gsa_dir}/{cra_accession}/{run_id}/{run_id}_r2.fastq.gz",
-                    "fastq_ftp": f"ftp://download.big.ac.cn/{gsa_dir}/{cra_accession}/{run_id}/{run_id}_r1.fastq.gz;ftp://download.big.ac.cn/{gsa_dir}/{cra_accession}/{run_id}/{run_id}_r2.fastq.gz",
+                    "fastq_aspera": f"aspera01@download.cncb.ac.cn:{gsa_dir}/{cra_accession}/{run_id}/{files[0]};aspera01@download.cncb.ac.cn:{gsa_dir}/{cra_accession}/{run_id}/{files[1]}",
+                    "fastq_ftp": f"ftp://download.big.ac.cn/{gsa_dir}/{cra_accession}/{run_id}/{files[0]};ftp://download.big.ac.cn/{gsa_dir}/{cra_accession}/{run_id}/{files[1]}",
                     "fastq_bytes": "",
-                    "fastq_md5": "",
+                    "fastq_md5": ";".join(md5s),
                     "db": "gsa"
                 })
         else:
@@ -692,6 +722,7 @@ def query_gsa_metadata(accession: str) -> List[Dict[str, Any]]:
                 if not files:
                     files = [f"{run_id}_r1.fastq.gz", f"{run_id}_r2.fastq.gz"]
                     
+                md5s = [md5_dict.get(f, "") for f in files]
                 aspera_urls = [f"aspera01@download.cncb.ac.cn:{gsa_dir}/{cra_accession}/{run_id}/{f}" for f in files]
                 ftp_urls = [f"ftp://download.big.ac.cn/{gsa_dir}/{cra_accession}/{run_id}/{f}" for f in files]
                 
@@ -700,7 +731,7 @@ def query_gsa_metadata(accession: str) -> List[Dict[str, Any]]:
                     "fastq_aspera": ";".join(aspera_urls),
                     "fastq_ftp": ";".join(ftp_urls),
                     "fastq_bytes": "",
-                    "fastq_md5": "",
+                    "fastq_md5": ";".join(md5s),
                     "db": "gsa"
                 })
                 
