@@ -170,6 +170,20 @@ def download_ena_ascp(
     urls = [u.strip() for u in aspera_urls_str.split(";") if u.strip()]
     success_count = 0
     
+    # Check if this is a GSA download
+    is_gsa = any("download.cncb.ac.cn" in u for u in urls)
+    if is_gsa:
+        gsa_key_path = os.path.expanduser("~/.small_fisher/aspera01.openssh")
+        if not os.path.exists(gsa_key_path):
+            logger.info("Downloading CNCB GSA Aspera key (aspera01.openssh)...")
+            os.makedirs(os.path.dirname(gsa_key_path), exist_ok=True)
+            download_url("https://ngdc.cncb.ac.cn/gsa/file/downFile?fileName=download/aspera01.openssh", gsa_key_path)
+            try:
+                os.chmod(gsa_key_path, 0o600)
+            except Exception as e:
+                pass
+        ascp_key = gsa_key_path
+        
     # Ensure ascp bin and key exist
     if not os.path.exists(ascp_bin):
         logger.error(f"[bold red]✗ Aspera binary not found at: {ascp_bin}[/bold red]")
@@ -313,16 +327,19 @@ def download_url(url: str, output_path: str) -> bool:
     else:
         http_url = url
         
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        
     if check_binary("wget"):
-        cmd = ["wget", "-c", "-O", output_path, http_url]
+        cmd = ["wget", "-c", "--user-agent", user_agent, "-O", output_path, http_url]
         return run_command(cmd, f"wget download of {os.path.basename(output_path)}")
     elif check_binary("curl"):
-        cmd = ["curl", "-L", "-o", output_path, "-C", "-", http_url]
+        cmd = ["curl", "-L", "-A", user_agent, "-o", output_path, "-C", "-", http_url]
         return run_command(cmd, f"curl download of {os.path.basename(output_path)}")
     else:
         logger.info(f"Downloading {http_url} via Python requests...")
         try:
-            response = requests.get(http_url, stream=True, timeout=30)
+            headers = {"User-Agent": user_agent}
+            response = requests.get(http_url, headers=headers, stream=True, timeout=30)
             response.raise_for_status()
             with open(output_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
