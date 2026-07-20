@@ -97,9 +97,9 @@ def parse_args() -> argparse.Namespace:
     )
     
     get_parser.add_argument(
-        "--skip-verify",
+        "--verify",
         action="store_true",
-        help="Skip MD5 checksum verification of FASTQ files after download (default: False)"
+        help="Perform MD5 checksum verification of FASTQ files after download or for existing files (default: False)"
     )
     
     # 'ui' command
@@ -252,7 +252,7 @@ def handle_get(args: argparse.Namespace) -> int:
             logger.info(f"Resolving run: {run_id}")
             
             # Check if this run is already downloaded and complete
-            if check_already_downloaded(run_id, run_records, output_dir):
+            if check_already_downloaded(run_id, run_records, output_dir, getattr(args, "verify", False)):
                 logger.info(f"[bold green]✓ Run {run_id} is already fully downloaded. Skipping.[/bold green]")
                 overall_success.append(run_id)
                 continue
@@ -304,7 +304,7 @@ def handle_get(args: argparse.Namespace) -> int:
                             errors.append("ena-ftp: HTTP/FTP transfer failed")
                         
                     if downloaded:
-                        if not getattr(args, "skip_verify", False):
+                        if getattr(args, "verify", False):
                             from small_fisher.downloader import verify_file_integrity
                             md5_list = [m.strip() for m in run_record.get("fastq_md5", "").split(";") if m.strip()]
                             files = []

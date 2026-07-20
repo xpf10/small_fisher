@@ -550,8 +550,8 @@ def download_prefetch(
     # Decompress using parallel-fastq-dump
     return decompress_sra_parallel(sra_path, accession, output_dir, threads, keep_sra)
 
-def is_run_downloaded(run_record: Dict[str, Any], output_dir: str) -> bool:
-    """Check if all expected FASTQ files for the ENA run exist and match expected size."""
+def is_run_downloaded(run_record: Dict[str, Any], output_dir: str, verify: bool = False) -> bool:
+    """Check if all expected FASTQ files for the ENA run exist, match expected size, and pass MD5 verification."""
     fastq_aspera = run_record.get("fastq_aspera", "")
     fastq_ftp = run_record.get("fastq_ftp", "")
     
@@ -585,14 +585,29 @@ def is_run_downloaded(run_record: Dict[str, Any], output_dir: str) -> bool:
             if os.path.getsize(local_path) == 0:
                 return False
                 
+    # If all files exist and match size, optionally verify MD5
+    if verify:
+        md5_list = [m.strip() for m in run_record.get("fastq_md5", "").split(";") if m.strip()]
+        if md5_list and len(md5_list) == len(urls):
+            for i, url in enumerate(urls):
+                filename = os.path.basename(url)
+                filepath = os.path.join(output_dir, filename)
+                expected_md5 = md5_list[i]
+                logger.info(f"Verifying existing file {filename} against MD5 {expected_md5}...")
+                if not verify_file_integrity(filepath, expected_md5):
+                    logger.warning(f"MD5 mismatch for existing file {filename}, marking for re-download.")
+                    return False
+                else:
+                    logger.info(f"[bold green]✓ MD5 verified for existing file {filename}[/bold green]")
+                    
     return True
 
-def check_already_downloaded(run_id: str, run_records: List[Dict[str, Any]], output_dir: str) -> bool:
-    """Check if the run has already been fully downloaded (FASTQ files exist and are complete)."""
+def check_already_downloaded(run_id: str, run_records: List[Dict[str, Any]], output_dir: str, verify: bool = False) -> bool:
+    """Check if the run has already been fully downloaded (FASTQ files exist, complete, and pass MD5)."""
     # 1. Check ENA file reports metadata
     if run_records:
         for record in run_records:
-            if is_run_downloaded(record, output_dir):
+            if is_run_downloaded(record, output_dir, verify):
                 return True
                 
     # 2. Check standard paired-end/single-end FASTQ filename patterns as a fallback
