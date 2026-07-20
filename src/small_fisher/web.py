@@ -108,7 +108,7 @@ def run_job_thread(job_id: str, accession: str, methods: List[str], current_conf
             add_job_log(job_id, f"--------------------------------------------------")
             
             # Check if this run is already downloaded and complete
-            if check_already_downloaded(run_id, run_records, current_config["output_dir"]):
+            if check_already_downloaded(run_id, run_records, current_config["output_dir"], current_config.get("verify", False)):
                 add_job_log(job_id, f"Run {run_id} is already fully downloaded. Skipping.")
                 continue
                 
@@ -165,7 +165,34 @@ def run_job_thread(job_id: str, accession: str, methods: List[str], current_conf
                         )
                         
                     if downloaded:
-                        break
+                        if current_config.get("verify", False):
+                            from small_fisher.downloader import verify_file_integrity
+                            md5_list = [m.strip() for m in run_record.get("fastq_md5", "").split(";") if m.strip()]
+                            files = []
+                            if "fastq_ftp" in run_record and run_record["fastq_ftp"]:
+                                files = [os.path.basename(u) for u in run_record["fastq_ftp"].split(";") if u.strip()]
+                            elif "fastq_aspera" in run_record and run_record["fastq_aspera"]:
+                                files = [os.path.basename(u) for u in run_record["fastq_aspera"].split(";") if u.strip()]
+                            
+                            if md5_list and len(md5_list) == len(files):
+                                add_job_log(job_id, f"Verifying MD5 checksums for {run_id}...")
+                                is_valid = True
+                                for f, expected_md5 in zip(files, md5_list):
+                                    filepath = os.path.join(current_config["output_dir"], f)
+                                    add_job_log(job_id, f"Verifying {f} against MD5 {expected_md5}...")
+                                    if not verify_file_integrity(filepath, expected_md5):
+                                        add_job_log(job_id, f"✗ MD5 mismatch for {f}")
+                                        is_valid = False
+                                        break
+                                    else:
+                                        add_job_log(job_id, f"✓ MD5 verified for {f}")
+                                if not is_valid:
+                                    add_job_log(job_id, f"Integrity check failed for method {method}. Proceeding to fallback...")
+                                    downloaded = False
+                                    
+                        if downloaded:
+                            add_job_log(job_id, f"✓ Successfully downloaded {run_id} using {method}.")
+                            break
                 
                 if downloaded:
                     break
@@ -767,6 +794,9 @@ def index():
                     <label class="checkbox-label">
                          <input type="checkbox" id="keep_sra"> Keep SRA Files
                     </label>
+                    <label class="checkbox-label" style="margin-top: 0.5rem;">
+                         <input type="checkbox" id="verify"> Verify MD5 Checksums
+                    </label>
                 </div>
                 <button class="btn" onclick="saveConfig()">Save Settings</button>
             </div>
@@ -834,6 +864,7 @@ def index():
                 document.getElementById('ascp_key').value = configData.ascp_key || '';
                 document.getElementById('ascp_options').value = configData.ascp_options;
                 document.getElementById('keep_sra').checked = configData.keep_sra;
+                document.getElementById('verify').checked = configData.verify || false;
                 document.getElementById('retries').value = configData.retries !== undefined ? configData.retries : 2;
             } catch (e) {
                 showNotification("Error loading configuration", true);
@@ -850,6 +881,7 @@ def index():
                 ascp_key: document.getElementById('ascp_key').value || null,
                 ascp_options: document.getElementById('ascp_options').value,
                 keep_sra: document.getElementById('keep_sra').checked,
+                verify: document.getElementById('verify').checked,
                 retries: parseInt(document.getElementById('retries').value || 0)
             };
 
