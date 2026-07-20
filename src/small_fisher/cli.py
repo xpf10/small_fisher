@@ -6,8 +6,7 @@ from typing import List, Dict, Any
 
 from small_fisher.utils import logger, console, get_ascli_config
 from small_fisher.downloader import (
-    query_ena_api,
-    construct_fallback_metadata,
+    query_metadata,
     download_ena_ascp,
     download_ena_ftp,
     download_prefetch,
@@ -239,11 +238,8 @@ def handle_get(args: argparse.Namespace) -> int:
     for accession in run_identifiers:
         logger.info(f"\n[bold magenta]► Processing accession: {accession}[/bold magenta]")
         
-        # Query ENA API to resolve accession to runs
-        run_records = query_ena_api(accession)
-        if not run_records:
-            # Try to build fallback metadata if the API query returned nothing
-            run_records = construct_fallback_metadata(accession)
+        # Query ENA or GSA API to resolve accession to runs
+        run_records = query_metadata(accession)
             
         for run_record in run_records:
             run_id = run_record["run_accession"]

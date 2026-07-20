@@ -16,8 +16,7 @@ from small_fisher.utils import (
     cancel_job_process
 )
 from small_fisher.downloader import (
-    query_ena_api,
-    construct_fallback_metadata,
+    query_metadata,
     download_ena_ascp,
     download_ena_ftp,
     download_prefetch,
@@ -99,10 +98,7 @@ def run_job_thread(job_id: str, accession: str, methods: List[str], current_conf
     
     try:
         # Step 1: Query API
-        run_records = query_ena_api(accession)
-        if not run_records:
-            add_job_log(job_id, "API query returned no records. Attempting fallback URL construction...")
-            run_records = construct_fallback_metadata(accession)
+        run_records = query_metadata(accession)
             
         success = True
         for run_record in run_records:

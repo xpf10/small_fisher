@@ -306,7 +306,10 @@ def download_url(url: str, output_path: str) -> bool:
     if url.startswith("ftp.sra.ebi.ac.uk"):
         http_url = "https://" + url
     elif url.startswith("ftp://"):
-        http_url = url.replace("ftp://", "https://")
+        if "download.big.ac.cn" in url:
+            http_url = url.replace("ftp://download.big.ac.cn", "https://download.cncb.ac.cn")
+        else:
+            http_url = url.replace("ftp://", "https://")
     else:
         http_url = url
         
@@ -589,3 +592,119 @@ def check_already_downloaded(run_id: str, run_records: List[Dict[str, Any]], out
             return True
             
     return False
+
+def query_gsa_metadata(accession: str) -> List[Dict[str, Any]]:
+    """Query GSA metadata from CNCB web pages for GSA accessions."""
+    import re
+    accession = accession.upper().strip()
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    # Identify parent CRA project accession
+    is_crr = accession.startswith("CRR")
+    if is_crr:
+        search_url = f"https://ngdc.cncb.ac.cn/gsa/search?searchTerm={accession}"
+        try:
+            logger.info(f"Resolving parent GSA project for run {accession}...")
+            res = requests.get(search_url, headers=headers, timeout=20)
+            if res.status_code == 200:
+                gsa_match = re.search(r'browse/(CRA[0-9]+)', res.text)
+                if gsa_match:
+                    cra_accession = gsa_match.group(1)
+                    logger.info(f"Resolved parent project: {cra_accession}")
+                else:
+                    logger.warning(f"Could not resolve parent CRA for {accession} from search results.")
+                    return []
+            else:
+                logger.warning(f"CNCB search returned status code {res.status_code}")
+                return []
+        except Exception as e:
+            logger.warning(f"CNCB search request failed: {e}")
+            return []
+    else:
+        cra_accession = accession
+        
+    browse_url = f"https://ngdc.cncb.ac.cn/gsa/browse/{cra_accession}"
+    try:
+        logger.info(f"Fetching GSA metadata from browse page for {cra_accession}...")
+        res = requests.get(browse_url, headers=headers, timeout=20)
+        if res.status_code != 200:
+            logger.warning(f"Failed to fetch GSA browse page: status {res.status_code}")
+            return []
+            
+        html = res.text
+        
+        # 1. Parse GSA directory
+        dir_match = re.search(r'download\.cncb\.ac\.cn/((?:gsa[0-9]*|gsa-human))/' + re.escape(cra_accession), html)
+        if dir_match:
+            gsa_dir = dir_match.group(1)
+        else:
+            gsa_dir = "gsa"  # fallback
+            
+        logger.info(f"Parsed GSA server directory: {gsa_dir}")
+        
+        # 2. Extract runs and files from the runTr blocks
+        records = []
+        blocks = html.split('class="runTr"')
+        if len(blocks) <= 1:
+            run_accessions = sorted(list(set(re.findall(r'CRR[0-9]+', html))))
+            for run_id in run_accessions:
+                if is_crr and run_id != accession:
+                    continue
+                records.append({
+                    "run_accession": run_id,
+                    "fastq_aspera": f"aspera01@download.cncb.ac.cn:{gsa_dir}/{cra_accession}/{run_id}/{run_id}_r1.fastq.gz;aspera01@download.cncb.ac.cn:{gsa_dir}/{cra_accession}/{run_id}/{run_id}_r2.fastq.gz",
+                    "fastq_ftp": f"ftp://download.big.ac.cn/{gsa_dir}/{cra_accession}/{run_id}/{run_id}_r1.fastq.gz;ftp://download.big.ac.cn/{gsa_dir}/{cra_accession}/{run_id}/{run_id}_r2.fastq.gz",
+                    "fastq_bytes": "",
+                    "fastq_md5": "",
+                    "db": "gsa"
+                })
+        else:
+            for block in blocks[1:]:
+                run_match = re.search(r'CRR[0-9]+', block)
+                if not run_match:
+                    continue
+                run_id = run_match.group(0)
+                
+                if is_crr and run_id != accession:
+                    continue
+                    
+                files = re.findall(r'File:\s*</[^>]+>\s*([a-zA-Z0-9_\-\.]+)', block, re.IGNORECASE)
+                if not files:
+                    files = [f"{run_id}_r1.fastq.gz", f"{run_id}_r2.fastq.gz"]
+                    
+                aspera_urls = [f"aspera01@download.cncb.ac.cn:{gsa_dir}/{cra_accession}/{run_id}/{f}" for f in files]
+                ftp_urls = [f"ftp://download.big.ac.cn/{gsa_dir}/{cra_accession}/{run_id}/{f}" for f in files]
+                
+                records.append({
+                    "run_accession": run_id,
+                    "fastq_aspera": ";".join(aspera_urls),
+                    "fastq_ftp": ";".join(ftp_urls),
+                    "fastq_bytes": "",
+                    "fastq_md5": "",
+                    "db": "gsa"
+                })
+                
+        if records:
+            logger.info(f"[bold green]✓ Found {len(records)} GSA runs.[/bold green]")
+            return records
+            
+    except Exception as e:
+        logger.warning(f"Failed to query GSA metadata: {e}")
+        
+    return []
+
+def query_metadata(accession: str) -> List[Dict[str, Any]]:
+    """Resolve accession to runs using ENA API or GSA web scraping, with fallbacks."""
+    import re
+    accession = accession.upper().strip()
+    if re.match(r"^(CRA|CRR|PRJCA)\d+$", accession):
+        return query_gsa_metadata(accession)
+    else:
+        records = query_ena_api(accession)
+        if not records:
+            records = construct_fallback_metadata(accession)
+        return records
+
