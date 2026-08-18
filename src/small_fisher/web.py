@@ -29,7 +29,7 @@ app = FastAPI(title="small_fisher UI")
 JOBS: Dict[str, Dict[str, Any]] = {}
 CONFIG = {
     "output_dir": os.path.abspath("."),
-    "threads": os.cpu_count() or 4,
+    "threads": 8,
     "ascp_bin": None,
     "ascp_key": None,
     "ascp_port": "33001",

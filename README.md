@@ -216,8 +216,7 @@ options:
   --ascp-options ASCP_OPTIONS
                         Aspera options string (default: '-vv -T -k 2')
   -t THREADS, --threads THREADS
-                        Number of threads for parallel-fastq-dump (default:
-                        all available CPU cores)
+                        Number of threads for parallel-fastq-dump (default: 8)
   --keep-sra            Keep SRA file after decompression when using prefetch
                         (default: False)
   --retries RETRIES     Number of auto-retries when all download methods fail

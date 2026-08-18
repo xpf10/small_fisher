@@ -79,8 +79,8 @@ def parse_args() -> argparse.Namespace:
     get_parser.add_argument(
         "-t", "--threads",
         type=int,
-        default=multiprocessing.cpu_count(),
-        help="Number of threads for parallel-fastq-dump (default: all available CPU cores)"
+        default=8,
+        help="Number of threads for parallel-fastq-dump (default: 8)"
     )
     
     get_parser.add_argument(
