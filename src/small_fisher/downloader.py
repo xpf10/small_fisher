@@ -671,7 +671,7 @@ def download_prefetch(
         logger.error("[bold red]✗ prefetch (SRA Toolkit) is not found in PATH.[/bold red]")
         return False
         
-    cmd = ["prefetch", accession, "-O", output_dir]
+    cmd = ["prefetch", accession, "-p", "-O", output_dir]
     ok = run_command(cmd, f"prefetch download of {accession}")
     if not ok:
         return False
