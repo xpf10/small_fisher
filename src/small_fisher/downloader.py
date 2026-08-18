@@ -3,6 +3,9 @@ import glob
 import subprocess
 import threading
 import time
+import shutil
+import tempfile
+import concurrent.futures
 from typing import List, Optional, Dict, Any
 import requests
 from small_fisher.utils import logger, run_command, check_binary
@@ -428,6 +431,127 @@ def download_ena_ftp(run_record: Dict[str, Any], output_dir: str) -> bool:
         
     return success_count > 0
 
+def clean_up_sra_file(sra_path: str, output_dir: str):
+    """Clean up SRA file and its containing directory if empty."""
+    logger.info(f"Cleaning up SRA file: {sra_path}")
+    try:
+        os.remove(sra_path)
+        parent_dir = os.path.dirname(sra_path)
+        if parent_dir != output_dir and not os.listdir(parent_dir):
+            os.rmdir(parent_dir)
+    except Exception as e:
+        logger.warning(f"Could not remove SRA file or folder: {e}")
+
+def get_sra_spot_count(sra_path: str) -> int:
+    """Get the total number of spots (reads) in the SRA file using sra-stat."""
+    if not check_binary("sra-stat"):
+        return 0
+    try:
+        res = subprocess.run(["sra-stat", "--xml", sra_path], capture_output=True, text=True, check=True)
+        xml_data = res.stdout
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml_data)
+        # Find stats size value or reads attribute
+        for child in root.iter():
+            if child.tag == "size" and "value" in child.attrib:
+                return int(child.attrib["value"])
+            if "reads" in child.attrib:
+                return int(child.attrib["reads"])
+            if "spots" in child.attrib:
+                return int(child.attrib["spots"])
+    except Exception as e:
+        logger.warning(f"Could not parse sra-stat output: {e}")
+    return 0
+
+def built_in_parallel_fastq_dump(sra_path: str, accession: str, output_dir: str, threads: int) -> bool:
+    """Built-in optimized parallel fastq-dump decompression in Python."""
+    if not check_binary("fastq-dump"):
+        logger.error("[bold red]✗ fastq-dump (SRA Toolkit) is not found in PATH.[/bold red]")
+        return False
+        
+    logger.info(f"Querying spot count for SRA file: {sra_path}...")
+    total_spots = get_sra_spot_count(sra_path)
+    if total_spots <= 0:
+        logger.warning("Could not determine spot count. Falling back to single-threaded fastq-dump...")
+        cmd = ["fastq-dump", "--split-files", "--gzip", "--outdir", output_dir, sra_path]
+        return run_command(cmd, f"single-threaded fastq-dump of {accession}")
+        
+    logger.info(f"Total spots: {total_spots}. Decompressing SRA using {threads} parallel fastq-dump chunks...")
+    
+    # Calculate chunk boundaries
+    chunk_size = total_spots // threads
+    if chunk_size == 0:
+        threads = 1
+        chunk_size = total_spots
+        
+    chunks = []
+    for i in range(threads):
+        start = i * chunk_size + 1
+        end = (i + 1) * chunk_size if i < threads - 1 else total_spots
+        chunks.append((start, end))
+        
+    with tempfile.TemporaryDirectory(dir=output_dir) as tmpdir:
+        def process_chunk(chunk_idx: int, start: int, end: int) -> bool:
+            chunk_dir = os.path.join(tmpdir, f"chunk_{chunk_idx}")
+            os.makedirs(chunk_dir, exist_ok=True)
+            
+            cmd = [
+                "fastq-dump",
+                "-N", str(start),
+                "-X", str(end),
+                "--split-files",
+                "--outdir", chunk_dir,
+                sra_path
+            ]
+            
+            # Run quietly to avoid stdout race conditions
+            res = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if res.returncode != 0:
+                return False
+                
+            # Compress fastq outputs of this chunk
+            fastqs = [os.path.join(chunk_dir, f) for f in os.listdir(chunk_dir) if f.endswith(".fastq")]
+            for fq in fastqs:
+                if check_binary("pigz"):
+                    subprocess.run(["pigz", "-p", "1", fq], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                    subprocess.run(["gzip", fq], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+            
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = [executor.submit(process_chunk, idx, start, end) for idx, (start, end) in enumerate(chunks)]
+            results = [f.result() for f in concurrent.futures.as_completed(futures)]
+            
+        if not all(results):
+            logger.error("[bold red]✗ One or more parallel fastq-dump chunks failed.[/bold red]")
+            return False
+            
+        # Collect generated filename patterns
+        file_patterns = set()
+        for idx in range(threads):
+            chunk_dir = os.path.join(tmpdir, f"chunk_{idx}")
+            if os.path.exists(chunk_dir):
+                for f in os.listdir(chunk_dir):
+                    if f.endswith(".fastq.gz"):
+                        file_patterns.add(f)
+                        
+        if not file_patterns:
+            logger.error("[bold red]✗ No decompressed FASTQ files found after chunk processing.[/bold red]")
+            return False
+            
+        logger.info("Concatenating parallel compressed chunks...")
+        for pattern in sorted(file_patterns):
+            output_path = os.path.join(output_dir, pattern)
+            with open(output_path, "wb") as outfile:
+                for idx in range(threads):
+                    chunk_file = os.path.join(tmpdir, f"chunk_{idx}", pattern)
+                    if os.path.exists(chunk_file):
+                        with open(chunk_file, "rb") as infile:
+                            shutil.copyfileobj(infile, outfile)
+                            
+        logger.info(f"[bold green]✓ Successfully decompressed and concatenated SRA to FASTQ.gz files.[/bold green]")
+        return True
+
 def decompress_sra_parallel(
     sra_path: str,
     accession: str,
@@ -435,8 +559,19 @@ def decompress_sra_parallel(
     threads: int,
     keep_sra: bool = False
 ) -> bool:
-    """Decompress a local SRA file using parallel-fastq-dump (or fallback to fasterq-dump)."""
+    """Decompress a local SRA file using built-in parallel fastq-dump (or fallbacks)."""
+    # 1. Try built-in optimized parallel fastq-dump
+    if check_binary("fastq-dump") and check_binary("sra-stat"):
+        logger.info("Using built-in optimized parallel fastq-dump decompression...")
+        ok = built_in_parallel_fastq_dump(sra_path, accession, output_dir, threads)
+        if ok:
+            if not keep_sra:
+                clean_up_sra_file(sra_path, output_dir)
+            return True
+            
+    # 2. Try external parallel-fastq-dump script if available
     if check_binary("parallel-fastq-dump"):
+        logger.info("Using system parallel-fastq-dump...")
         cmd = [
             "parallel-fastq-dump",
             "-s", sra_path,
@@ -448,49 +583,51 @@ def decompress_sra_parallel(
         ok = run_command(cmd, f"parallel-fastq-dump decompression of {accession}")
         if ok:
             if not keep_sra:
-                logger.info(f"Cleaning up SRA file: {sra_path}")
-                try:
-                    os.remove(sra_path)
-                    # Try to remove containing directory if it is empty and inside output_dir
-                    parent_dir = os.path.dirname(sra_path)
-                    if parent_dir != output_dir and not os.listdir(parent_dir):
-                        os.rmdir(parent_dir)
-                except Exception as e:
-                    logger.warning(f"Could not remove SRA file or folder: {e}")
+                clean_up_sra_file(sra_path, output_dir)
             return True
-    else:
-        logger.warning("[bold yellow]parallel-fastq-dump not found in PATH.[/bold yellow]")
-        if check_binary("fasterq-dump"):
-            logger.info("Falling back to fasterq-dump...")
-            cmd = [
-                "fasterq-dump",
-                sra_path,
-                "-e", str(threads),
-                "-O", output_dir,
-                "--split-files"
-            ]
-            ok = run_command(cmd, f"fasterq-dump decompression of {accession}")
-            if ok:
-                # Gzip the output fastq files
-                logger.info("Compressing extracted FASTQ files...")
-                fastqs = glob.glob(os.path.join(output_dir, f"{accession}*.fastq"))
-                for fq in fastqs:
-                    if check_binary("pigz"):
-                        run_command(["pigz", "-p", str(threads), fq], f"pigz compression of {os.path.basename(fq)}")
-                    else:
-                        run_command(["gzip", fq], f"gzip compression of {os.path.basename(fq)}")
-                
-                if not keep_sra:
-                    try:
-                        os.remove(sra_path)
-                        parent_dir = os.path.dirname(sra_path)
-                        if parent_dir != output_dir and not os.listdir(parent_dir):
-                            os.rmdir(parent_dir)
-                    except Exception as e:
-                        pass
-                return True
-        else:
-            logger.error("[bold red]Neither parallel-fastq-dump nor fasterq-dump was found in PATH. Extraction failed.[/bold red]")
+            
+    # 3. Fallback to fasterq-dump
+    if check_binary("fasterq-dump"):
+        logger.warning("parallel-fastq-dump / sra-stat not fully available. Falling back to fasterq-dump...")
+        cmd = [
+            "fasterq-dump",
+            sra_path,
+            "-e", str(threads),
+            "-O", output_dir,
+            "--split-files"
+        ]
+        ok = run_command(cmd, f"fasterq-dump decompression of {accession}")
+        if ok:
+            # Gzip the output fastq files
+            logger.info("Compressing extracted FASTQ files...")
+            fastqs = glob.glob(os.path.join(output_dir, f"{accession}*.fastq"))
+            for fq in fastqs:
+                if check_binary("pigz"):
+                    run_command(["pigz", "-p", str(threads), fq], f"pigz compression of {os.path.basename(fq)}")
+                else:
+                    run_command(["gzip", fq], f"gzip compression of {os.path.basename(fq)}")
+            
+            if not keep_sra:
+                clean_up_sra_file(sra_path, output_dir)
+            return True
+            
+    # 4. Final fallback: single-threaded fastq-dump
+    if check_binary("fastq-dump"):
+        logger.warning("Falling back to single-threaded fastq-dump...")
+        cmd = [
+            "fastq-dump",
+            "--split-files",
+            "--gzip",
+            "--outdir", output_dir,
+            sra_path
+        ]
+        ok = run_command(cmd, f"single-threaded fastq-dump of {accession}")
+        if ok:
+            if not keep_sra:
+                clean_up_sra_file(sra_path, output_dir)
+            return True
+            
+    logger.error("[bold red]No SRA decompression tool (fastq-dump / fasterq-dump) found in PATH.[/bold red]")
     return False
 
 def find_downloaded_sra(accession: str, search_dir: str) -> Optional[str]:
