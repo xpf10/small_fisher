@@ -674,6 +674,27 @@ def download_prefetch(
         logger.error("[bold red]✗ prefetch (SRA Toolkit) is not found in PATH.[/bold red]")
         return False
         
+    # Clean up stale lock/temp files from previous failed/aborted prefetch runs
+    lock_file = os.path.join(output_dir, f"{accession}.sra.lock")
+    if os.path.exists(lock_file):
+        logger.info(f"Removing stale prefetch lock file: {lock_file}")
+        try:
+            os.remove(lock_file)
+        except Exception:
+            pass
+            
+    acc_dir = os.path.join(output_dir, accession)
+    if os.path.exists(acc_dir):
+        for root, _, files in os.walk(acc_dir):
+            for f in files:
+                if f.endswith(".lock") or f.endswith(".tmp"):
+                    fp = os.path.join(root, f)
+                    logger.info(f"Removing stale prefetch temp/lock file: {fp}")
+                    try:
+                        os.remove(fp)
+                    except Exception:
+                        pass
+
     cmd = ["prefetch", accession, "-p", "-O", output_dir]
     ok = run_command(cmd, f"prefetch download of {accession}")
     if not ok:
