@@ -451,10 +451,13 @@ def get_sra_spot_count(sra_path: str) -> int:
         xml_data = res.stdout
         import xml.etree.ElementTree as ET
         root = ET.fromstring(xml_data)
-        # Find stats size value or reads attribute
+        # Find stats size value or spot_count/reads/spots attributes
         for child in root.iter():
-            if child.tag == "size" and "value" in child.attrib:
+            tag_local = child.tag.split("}")[-1]
+            if tag_local == "size" and "value" in child.attrib:
                 return int(child.attrib["value"])
+            if "spot_count" in child.attrib:
+                return int(child.attrib["spot_count"])
             if "reads" in child.attrib:
                 return int(child.attrib["reads"])
             if "spots" in child.attrib:
