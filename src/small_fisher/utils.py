@@ -124,10 +124,34 @@ def run_command(cmd: List[str], description: str, env: Optional[dict] = None) ->
                 if char in ("\n", "\r"):
                     line = "".join(buffer)
                     buffer = []
-                    sys.stdout.write(line + char)
+                    
+                    import re
+                    is_progress = (char == "\r")
+                    line_clean = line.rstrip("\r\n")
+                    
+                    # Detect SRA progress lines containing percentages
+                    pct_matches = re.findall(r'(\d+(?:\.\d+)?)%', line_clean)
+                    is_sra_p = False
+                    if pct_matches:
+                        if "|" in line_clean or "-" in line_clean:
+                            is_sra_p = True
+                        elif len(pct_matches) > 1:
+                            is_sra_p = True
+                        elif len(line_clean.strip()) < 15:
+                            is_sra_p = True
+                            
+                    if is_sra_p:
+                        line_clean = f"Downloading/Decompressing SRA... {pct_matches[-1]}%"
+                        is_progress = True
+                        
+                    if is_progress:
+                        sys.stdout.write(f"\r\033[K{line_clean}\r")
+                    else:
+                        sys.stdout.write(line + char)
                     sys.stdout.flush()
+                    
                     if callback:
-                        callback(line.rstrip("\r\n"), char == "\r")
+                        callback(line_clean, is_progress)
                 else:
                     buffer.append(char)
                     
