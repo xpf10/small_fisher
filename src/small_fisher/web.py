@@ -35,7 +35,8 @@ CONFIG = {
     "ascp_port": "33001",
     "ascp_options": "-vv -T -k 2",
     "keep_sra": False,
-    "retries": 2
+    "retries": 2,
+    "max_size": "100G"
 }
 
 class ConfigModel(BaseModel):
@@ -47,6 +48,7 @@ class ConfigModel(BaseModel):
     ascp_options: str
     keep_sra: bool
     retries: int = 2
+    max_size: str = "100G"
 
 class NewJobModel(BaseModel):
     accession: str
@@ -156,7 +158,8 @@ def run_job_thread(job_id: str, accession: str, methods: List[str], current_conf
                             accession=run_id,
                             output_dir=current_config["output_dir"],
                             threads=current_config["threads"],
-                            keep_sra=current_config["keep_sra"]
+                            keep_sra=current_config["keep_sra"],
+                            max_size=current_config.get("max_size", "100G")
                         )
                     elif method == "ena-ftp":
                         downloaded = download_ena_ftp(
@@ -791,6 +794,10 @@ def index():
                     <input type="number" id="retries" class="form-control" min="0" max="10" placeholder="2">
                 </div>
                 <div class="form-group">
+                    <label for="max_size">Prefetch Max Size</label>
+                    <input type="text" id="max_size" class="form-control" placeholder="100G">
+                </div>
+                <div class="form-group">
                     <label class="checkbox-label">
                          <input type="checkbox" id="keep_sra"> Keep SRA Files
                     </label>
@@ -866,6 +873,7 @@ def index():
                 document.getElementById('keep_sra').checked = configData.keep_sra;
                 document.getElementById('verify').checked = configData.verify || false;
                 document.getElementById('retries').value = configData.retries !== undefined ? configData.retries : 2;
+                document.getElementById('max_size').value = configData.max_size || '100G';
             } catch (e) {
                 showNotification("Error loading configuration", true);
             }
@@ -882,7 +890,8 @@ def index():
                 ascp_options: document.getElementById('ascp_options').value,
                 keep_sra: document.getElementById('keep_sra').checked,
                 verify: document.getElementById('verify').checked,
-                retries: parseInt(document.getElementById('retries').value || 0)
+                retries: parseInt(document.getElementById('retries').value || 0),
+                max_size: document.getElementById('max_size').value || '100G'
             };
 
             try {
@@ -1133,6 +1142,7 @@ def update_config(config: ConfigModel):
     CONFIG["ascp_options"] = config.ascp_options
     CONFIG["keep_sra"] = config.keep_sra
     CONFIG["retries"] = config.retries
+    CONFIG["max_size"] = config.max_size
     return {"status": "ok"}
 
 @app.get("/api/jobs")

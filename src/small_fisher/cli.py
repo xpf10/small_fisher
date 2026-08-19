@@ -90,6 +90,13 @@ def parse_args() -> argparse.Namespace:
     )
     
     get_parser.add_argument(
+        "--max-size",
+        type=str,
+        default="100G",
+        help="Maximum file size limit for prefetch download (e.g. 50G, 100G) (default: 100G)"
+    )
+    
+    get_parser.add_argument(
         "--retries",
         type=int,
         default=2,
@@ -291,7 +298,8 @@ def handle_get(args: argparse.Namespace) -> int:
                             accession=run_id,
                             output_dir=output_dir,
                             threads=args.threads,
-                            keep_sra=args.keep_sra
+                            keep_sra=args.keep_sra,
+                            max_size=args.max_size
                         )
                         if not downloaded:
                             errors.append("prefetch: Download or parallel-fastq-dump decompression failed")

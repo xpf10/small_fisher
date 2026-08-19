@@ -667,7 +667,8 @@ def download_prefetch(
     accession: str,
     output_dir: str,
     threads: int,
-    keep_sra: bool = False
+    keep_sra: bool = False,
+    max_size: str = "100G"
 ) -> bool:
     """Download SRA file using prefetch, then decompress using parallel-fastq-dump."""
     if not check_binary("prefetch"):
@@ -695,7 +696,7 @@ def download_prefetch(
                     except Exception:
                         pass
 
-    cmd = ["prefetch", accession, "-p", "-O", output_dir]
+    cmd = ["prefetch", accession, "-p", "-O", output_dir, "--max-size", max_size]
     ok = run_command(cmd, f"prefetch download of {accession}")
     if not ok:
         return False
