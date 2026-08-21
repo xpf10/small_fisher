@@ -20,7 +20,8 @@ from small_fisher.downloader import (
     download_ena_ascp,
     download_ena_ftp,
     download_prefetch,
-    check_already_downloaded
+    check_already_downloaded,
+    wait_for_decompressions
 )
 
 app = FastAPI(title="small_fisher UI")
@@ -210,6 +211,11 @@ def run_job_thread(job_id: str, accession: str, methods: List[str], current_conf
                 add_job_log(job_id, f"✗ Failed to download run {run_id} using all specified methods.")
                 break
                 
+        # Wait for all background decompression tasks to complete
+        if success and JOBS[job_id]["status"] != "cancelled":
+            add_job_log(job_id, "Waiting for all background decompression tasks to complete...")
+            wait_for_decompressions()
+            
         if JOBS[job_id]["status"] != "cancelled":
             if success:
                 JOBS[job_id]["status"] = "completed"
@@ -217,6 +223,7 @@ def run_job_thread(job_id: str, accession: str, methods: List[str], current_conf
             else:
                 JOBS[job_id]["status"] = "failed"
                 add_job_log(job_id, "✗ Download job failed.")
+
                 
     except Exception as e:
         if JOBS[job_id]["status"] != "cancelled":

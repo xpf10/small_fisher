@@ -10,7 +10,8 @@ from small_fisher.downloader import (
     download_ena_ascp,
     download_ena_ftp,
     download_prefetch,
-    check_already_downloaded
+    check_already_downloaded,
+    wait_for_decompressions
 )
 
 def parse_args() -> argparse.Namespace:
@@ -354,8 +355,12 @@ def handle_get(args: argparse.Namespace) -> int:
                 overall_failure.append(run_id)
                 failed_runs_errors[run_id] = err_summary
                 
+    # Wait for all background decompression tasks to complete
+    wait_for_decompressions()
+    
     # Write a summary log file to output_dir
     write_download_report(output_dir, overall_success, failed_runs_errors)
+
                 
     logger.info("\n[bold cyan]==================================================[/bold cyan]")
     logger.info("[bold cyan]                DOWNLOAD SUMMARY                  [/bold cyan]")

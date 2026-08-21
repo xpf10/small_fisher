@@ -8,7 +8,60 @@ import tempfile
 import concurrent.futures
 from typing import List, Optional, Dict, Any
 import requests
+import queue
 from small_fisher.utils import logger, run_command, check_binary
+
+_decompression_queue = queue.Queue()
+_decompression_thread = None
+_decompression_lock = threading.Lock()
+
+def _decompression_worker():
+    while True:
+        task = _decompression_queue.get()
+        if task is None:
+            break
+        sra_path, accession, output_dir, threads, keep_sra, callback, job_id = task
+        
+        # Restore context variables for this background worker thread
+        token_log = None
+        token_job = None
+        from small_fisher.utils import CURRENT_LOG_CALLBACK, CURRENT_JOB_ID
+        if callback is not None:
+            token_log = CURRENT_LOG_CALLBACK.set(callback)
+        if job_id is not None:
+            token_job = CURRENT_JOB_ID.set(job_id)
+            
+        try:
+            logger.info(f"\n[bold yellow]► Starting background decompression for: {accession}[/bold yellow]")
+            decompress_sra_parallel(sra_path, accession, output_dir, threads, keep_sra)
+        except Exception as e:
+            logger.error(f"Error in background decompression of {accession}: {e}")
+        finally:
+            if token_log is not None:
+                CURRENT_LOG_CALLBACK.reset(token_log)
+            if token_job is not None:
+                CURRENT_JOB_ID.reset(token_job)
+            _decompression_queue.task_done()
+
+def start_decompression_worker():
+    global _decompression_thread
+    with _decompression_lock:
+        if _decompression_thread is None or not _decompression_thread.is_alive():
+            _decompression_thread = threading.Thread(target=_decompression_worker, daemon=True)
+            _decompression_thread.start()
+
+def queue_decompression(sra_path: str, accession: str, output_dir: str, threads: int, keep_sra: bool = False):
+    from small_fisher.utils import CURRENT_LOG_CALLBACK, CURRENT_JOB_ID
+    callback = CURRENT_LOG_CALLBACK.get()
+    job_id = CURRENT_JOB_ID.get()
+    
+    start_decompression_worker()
+    _decompression_queue.put((sra_path, accession, output_dir, threads, keep_sra, callback, job_id))
+
+def wait_for_decompressions():
+    logger.info("Waiting for all background decompression tasks to complete...")
+    _decompression_queue.join()
+
 
 def get_ena_subdir(accession: str) -> str:
     """Calculate ENA 3-digit subdirectory based on accession length."""
@@ -27,12 +80,21 @@ def query_ena_api(accession: str) -> List[Dict[str, Any]]:
     """Query the ENA Portal API to get run metadata (FASTQ FTP/Aspera links)."""
     import re
     is_gse = bool(re.match(r"^GSE\d+$", accession, re.IGNORECASE))
+    is_gsm = bool(re.match(r"^GSM\d+$", accession, re.IGNORECASE))
     
     if is_gse:
         url = "https://www.ebi.ac.uk/ena/portal/api/search"
         params = {
             "result": "read_run",
             "query": f'study_alias="{accession}" OR secondary_study_accession="{accession}"',
+            "fields": "run_accession,fastq_ftp,fastq_aspera,fastq_md5,fastq_bytes",
+            "format": "json"
+        }
+    elif is_gsm:
+        url = "https://www.ebi.ac.uk/ena/portal/api/search"
+        params = {
+            "result": "read_run",
+            "query": f'sample_alias="{accession}" OR secondary_sample_accession="{accession}"',
             "fields": "run_accession,fastq_ftp,fastq_aspera,fastq_md5,fastq_bytes",
             "format": "json"
         }
@@ -44,6 +106,7 @@ def query_ena_api(accession: str) -> List[Dict[str, Any]]:
             "fields": "run_accession,fastq_ftp,fastq_aspera,fastq_md5,fastq_bytes",
             "format": "json"
         }
+
         
     try:
         logger.info(f"Querying ENA Portal API for accession: {accession}...")
@@ -72,9 +135,10 @@ def query_ena_api(accession: str) -> List[Dict[str, Any]]:
 def construct_fallback_metadata(accession: str) -> List[Dict[str, Any]]:
     """Construct fallback metadata based on accession prefix when ENA API is down."""
     import re
-    if re.match(r"^GSE\d+$", accession, re.IGNORECASE):
-        logger.warning(f"Fallback metadata construction is not supported for GEO GSE accessions ({accession}).")
+    if re.match(r"^(GSE|GSM)\d+$", accession, re.IGNORECASE):
+        logger.warning(f"Fallback metadata construction is not supported for GEO accessions ({accession}).")
         return []
+
         
     logger.info(f"Constructing fallback metadata URLs for {accession}...")
     prefix = accession[:6]
@@ -709,8 +773,11 @@ def download_prefetch(
         
     logger.info(f"[bold green]✓ SRA file located at: {sra_path}[/bold green]")
     
-    # Decompress using parallel-fastq-dump
-    return decompress_sra_parallel(sra_path, accession, output_dir, threads, keep_sra)
+    # Decompress in background using parallel-fastq-dump
+    logger.info(f"Queueing background decompression for {accession}...")
+    queue_decompression(sra_path, accession, output_dir, threads, keep_sra)
+    return True
+
 
 def is_run_downloaded(run_record: Dict[str, Any], output_dir: str, verify: bool = False) -> bool:
     """Check if all expected FASTQ files for the ENA run exist, match expected size, and pass MD5 verification."""
