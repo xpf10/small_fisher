@@ -37,7 +37,7 @@ CONFIG = {
     "ascp_options": "-vv -T -k 2",
     "keep_sra": False,
     "retries": 2,
-    "max_size": "100G"
+    "max_size": "u"
 }
 
 class ConfigModel(BaseModel):
@@ -49,7 +49,7 @@ class ConfigModel(BaseModel):
     ascp_options: str
     keep_sra: bool
     retries: int = 2
-    max_size: str = "100G"
+    max_size: str = "u"
 
 class NewJobModel(BaseModel):
     accession: str
@@ -160,7 +160,7 @@ def run_job_thread(job_id: str, accession: str, methods: List[str], current_conf
                             output_dir=current_config["output_dir"],
                             threads=current_config["threads"],
                             keep_sra=current_config["keep_sra"],
-                            max_size=current_config.get("max_size", "100G")
+                            max_size=current_config.get("max_size", "u")
                         )
                     elif method == "ena-ftp":
                         downloaded = download_ena_ftp(
@@ -802,7 +802,7 @@ def index():
                 </div>
                 <div class="form-group">
                     <label for="max_size">Prefetch Max Size</label>
-                    <input type="text" id="max_size" class="form-control" placeholder="100G">
+                    <input type="text" id="max_size" class="form-control" placeholder="u (unlimited)">
                 </div>
                 <div class="form-group">
                     <label class="checkbox-label">
@@ -880,7 +880,7 @@ def index():
                 document.getElementById('keep_sra').checked = configData.keep_sra;
                 document.getElementById('verify').checked = configData.verify || false;
                 document.getElementById('retries').value = configData.retries !== undefined ? configData.retries : 2;
-                document.getElementById('max_size').value = configData.max_size || '100G';
+                document.getElementById('max_size').value = configData.max_size || 'u';
             } catch (e) {
                 showNotification("Error loading configuration", true);
             }
@@ -898,7 +898,7 @@ def index():
                 keep_sra: document.getElementById('keep_sra').checked,
                 verify: document.getElementById('verify').checked,
                 retries: parseInt(document.getElementById('retries').value || 0),
-                max_size: document.getElementById('max_size').value || '100G'
+                max_size: document.getElementById('max_size').value || 'u'
             };
 
             try {

@@ -219,6 +219,10 @@ options:
                         Number of threads for parallel-fastq-dump (default: 8)
   --keep-sra            Keep SRA file after decompression when using prefetch
                         (default: False)
+  --max-size MAX_SIZE   Maximum file size limit for prefetch download (e.g.
+                        50G, 100G, or 'u'/'unlimited' for unlimited) (default: u)
   --retries RETRIES     Number of auto-retries when all download methods fail
                         for a run (default: 2)
+  --verify              Perform MD5 checksum verification of FASTQ files after
+                        download or for existing files (default: False)
 ```

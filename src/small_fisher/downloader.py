@@ -727,12 +727,22 @@ def find_downloaded_sra(accession: str, search_dir: str) -> Optional[str]:
                 
     return None
 
+def normalize_max_size(max_size: Optional[str]) -> str:
+    """Normalize max_size string to a prefetch-compatible argument (e.g. 'u' for unlimited)."""
+    if not max_size:
+        return "u"
+    s = str(max_size).strip()
+    if s.lower() in ("u", "unlimited", "0", "0g", "none"):
+        return "u"
+    return s
+
+
 def download_prefetch(
     accession: str,
     output_dir: str,
     threads: int,
     keep_sra: bool = False,
-    max_size: str = "100G"
+    max_size: str = "u"
 ) -> bool:
     """Download SRA file using prefetch, then decompress using parallel-fastq-dump."""
     if not check_binary("prefetch"):
@@ -760,15 +770,28 @@ def download_prefetch(
                     except Exception:
                         pass
 
-    cmd = ["prefetch", accession, "-p", "-O", output_dir, "--max-size", max_size]
-    ok = run_command(cmd, f"prefetch download of {accession}")
+    norm_max_size = normalize_max_size(max_size)
+    cmd = ["prefetch", accession, "-p", "-O", output_dir, "--max-size", norm_max_size]
+    prefetch_failure_patterns = [
+        "larger than maximum allowed: skipped",
+        "Download of some files was skipped because they are too large",
+        "failed to download"
+    ]
+    ok = run_command(
+        cmd,
+        f"prefetch download of {accession}",
+        failure_patterns=prefetch_failure_patterns
+    )
     if not ok:
         return False
         
     # Locate the downloaded SRA file
     sra_path = find_downloaded_sra(accession, output_dir)
     if not sra_path:
-        logger.error(f"[bold red]✗ SRA file for {accession} could not be located after prefetch.[/bold red]")
+        logger.error(
+            f"[bold red]✗ SRA file for {accession} could not be located after prefetch. "
+            f"If the file exceeded a max-size limit, try with '--max-size u' (unlimited).[/bold red]"
+        )
         return False
         
     logger.info(f"[bold green]✓ SRA file located at: {sra_path}[/bold green]")

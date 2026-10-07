@@ -77,7 +77,12 @@ atexit.register(kill_all_active_processes)
 def get_console() -> Console:
     return console
 
-def run_command(cmd: List[str], description: str, env: Optional[dict] = None) -> bool:
+def run_command(
+    cmd: List[str],
+    description: str,
+    env: Optional[dict] = None,
+    failure_patterns: Optional[List[str]] = None
+) -> bool:
     """
     Run a system command and stream its output.
     Returns True if successful, False otherwise.
@@ -92,6 +97,8 @@ def run_command(cmd: List[str], description: str, env: Optional[dict] = None) ->
     
     job_id = CURRENT_JOB_ID.get()
     process = None
+    had_failure_pattern = False
+    failure_reason = None
     try:
         try:
             # Merge stdout and stderr into one stream to read chronologically
@@ -117,8 +124,15 @@ def run_command(cmd: List[str], description: str, env: Optional[dict] = None) ->
                         line = "".join(buffer)
                         sys.stdout.write(line + "\n")
                         sys.stdout.flush()
+                        line_clean = line.rstrip("\r\n")
+                        if failure_patterns:
+                            for pattern in failure_patterns:
+                                if pattern in line_clean:
+                                    had_failure_pattern = True
+                                    failure_reason = line_clean
+                                    break
                         if callback:
-                            callback(line.rstrip("\r\n"), False)
+                            callback(line_clean, False)
                     break
                 
                 if char in ("\n", "\r"):
@@ -128,6 +142,13 @@ def run_command(cmd: List[str], description: str, env: Optional[dict] = None) ->
                     import re
                     is_progress = (char == "\r")
                     line_clean = line.rstrip("\r\n")
+                    
+                    if failure_patterns and not is_progress:
+                        for pattern in failure_patterns:
+                            if pattern in line_clean:
+                                had_failure_pattern = True
+                                failure_reason = line_clean
+                                break
                     
                     # Detect SRA progress lines containing percentages
                     pct_matches = re.findall(r'(\d+(?:\.\d+)?)%', line_clean)
@@ -170,14 +191,17 @@ def run_command(cmd: List[str], description: str, env: Optional[dict] = None) ->
                     except KeyError:
                         pass
         
-        if process.returncode == 0:
+        if process.returncode == 0 and not had_failure_pattern:
             msg = f"✓ {description} completed successfully."
             logger.info(f"[bold green]{msg}[/bold green]")
             if callback:
                 callback(msg, False)
             return True
         else:
-            msg = f"✗ {description} failed with exit code {process.returncode}."
+            if had_failure_pattern:
+                msg = f"✗ {description} failed: {failure_reason or 'detected fatal error in output'}."
+            else:
+                msg = f"✗ {description} failed with exit code {process.returncode}."
             logger.error(f"[bold red]{msg}[/bold red]")
             if callback:
                 callback(msg, False)

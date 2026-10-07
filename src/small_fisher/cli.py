@@ -93,8 +93,8 @@ def parse_args() -> argparse.Namespace:
     get_parser.add_argument(
         "--max-size",
         type=str,
-        default="100G",
-        help="Maximum file size limit for prefetch download (e.g. 50G, 100G) (default: 100G)"
+        default="u",
+        help="Maximum file size limit for prefetch download (e.g. 50G, 100G, or 'u'/'unlimited' for unlimited) (default: u)"
     )
     
     get_parser.add_argument(

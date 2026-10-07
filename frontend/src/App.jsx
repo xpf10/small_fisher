@@ -345,7 +345,8 @@ export default function App() {
     ascp_port: '33001',
     ascp_options: '-vv -T -k 2',
     keep_sra: false,
-    retries: 2
+    retries: 2,
+    max_size: 'u'
   });
   const [diskUsage, setDiskUsage] = useState({
     total: 0,
@@ -1143,7 +1144,20 @@ export default function App() {
                     />
                   </div>
 
-                  <div className="checkbox-row-custom">
+                  <div className="form-group-custom">
+                    <label className="form-label-custom">Prefetch Max Size Limit</label>
+                    <input
+                      type="text"
+                      value={config.max_size || 'u'}
+                      onChange={(e) => setConfig({ ...config, max_size: e.target.value })}
+                      className="form-input-custom mono"
+                      placeholder="e.g. u (unlimited), 100G, 500G"
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row-custom" style={{ borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '1.25rem' }}>
+                  <div className="checkbox-row-custom" style={{ gridColumn: '1 / -1' }}>
                     <label className="checkbox-label-custom">
                       <input
                         type="checkbox"
@@ -1201,6 +1215,7 @@ export default function App() {
                   <div>THREADS: {config.threads}</div>
                   <div>ASPERA KEY: {config.ascp_key ? 'RESOLVED ✓' : 'DEFAULT KEY'}</div>
                   <div>RETRIES: {config.retries}</div>
+                  <div>PREFETCH MAX-SIZE: {config.max_size || 'u'}</div>
                 </div>
               </div>
             </div>
